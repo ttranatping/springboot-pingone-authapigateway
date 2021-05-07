@@ -13,12 +13,15 @@ import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,7 +36,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
+
+import com.pingidentity.pingone.authngateway.exceptions.EncryptionException;
 
 @Controller
 @RequestMapping("/")
@@ -43,16 +47,52 @@ public class PingOneAuthGatewayController {
 
 	@Value("${ping.authHost}")
 	private String authHost;
+	
+	@Value("${ping.customValidators}")
+	private String[] customValidators;
+	
+	@Value("${ping.retainValues.claims}")
+	private String[] retainValues;
+	
+	@Value("${ping.obfuscateValues}")
+	private String[] obfuscateValues;
+	
+	@Value("${ping.retainValues.encryptionKey}")
+	private String encryptionKey;
+	
+	@Value("${ping.environmentId}")
+	private String environmentId;
+	
+	private EncryptionHelper encryptionHelper;
 
 	private HttpClient httpClient = null;
 
 	@PostConstruct
-	public void init() throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException {
+	public void init() throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException, EncryptionException {
 		
 		httpClient = HttpClient.newBuilder()
 			      .version(HttpClient.Version.HTTP_2)
 			      .followRedirects(HttpClient.Redirect.NEVER)
 			      .build();
+		
+		for(String customValidator: customValidators)
+		{
+			log.info("Registering customValidator: " + customValidator);
+		}
+		
+		for(String retainValue: retainValues)
+		{
+			log.info("Registering retainValue: " + retainValue);
+		}
+		
+		for(String obfuscateValue: obfuscateValues)
+		{
+			log.info("Registering obfuscateValue: " + obfuscateValue);
+		}
+		
+		log.info("Registering encryptionKey: " + encryptionKey);
+		
+		this.encryptionHelper = new EncryptionHelper(encryptionKey, environmentId, retainValues);
 	}
 
 	@GetMapping("/{envId}/as/authorize")
@@ -117,13 +157,16 @@ public class PingOneAuthGatewayController {
 		throw new InterruptedException("HTTP 302 Status found with no location header");
 	}
 
-	@PostMapping(value = "/{envId}/**", produces = "application/hal+json;charset=UTF-8")
+	@PostMapping(value = "/{envId}/flows/{flowId}", produces = "application/hal+json;charset=UTF-8")
 	public ResponseEntity<String> post(HttpServletRequest request, HttpServletResponse response,
 			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
-			@PathVariable(value = "envId", required = true) String envId) throws IOException, URISyntaxException, InterruptedException {
+			@PathVariable(value = "envId", required = true) String envId,
+			@PathVariable(value = "flowId", required = true) String flowId) throws IOException, URISyntaxException, InterruptedException, EncryptionException {
 
 		if(log.isDebugEnabled())
-			log.debug("Process POST");
+			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
+		
+		JSONObject retainedValues = updateRetainedValues(request, response, flowId, bodyStr);
 		
 		Builder targetRequestBuilder = HttpRequest.newBuilder().uri(getTargetUrl(request)).POST(BodyPublishers.ofString(bodyStr));
 
@@ -134,34 +177,61 @@ public class PingOneAuthGatewayController {
 		HttpResponse<String> targetResponse = executeTargetRequest(targetRequest, response);
 		
 		String responsePayload = getResponsePayload(targetResponse);
-
+		
 		return new ResponseEntity<String>(responsePayload,
 				HttpStatus.valueOf(targetResponse.statusCode()));
 	}
 
-	@RequestMapping(method = RequestMethod.OPTIONS, value = "/{envId}/**")
-	public ResponseEntity<String> options(HttpServletRequest request, HttpServletResponse response,
-			@RequestHeader MultiValueMap<String, String> headers,
-			@PathVariable(value = "envId", required = true) String envId) throws URISyntaxException, IOException, InterruptedException {
+	private String obfuscate(String bodyStr) {
+		JSONObject jsonObject = new JSONObject(bodyStr);
 		
+		for(String obfuscateClaim: this.obfuscateValues)
+		{
+			if(jsonObject.has(obfuscateClaim))
+				jsonObject.put(obfuscateClaim, "****");
+		}
+			
+		return jsonObject.toString(4);
+	}
 
+	private JSONObject updateRetainedValues(HttpServletRequest request, HttpServletResponse response, String flowId, String bodyStr) throws EncryptionException {
+		JSONObject jsonPayload = new JSONObject(bodyStr);
+		
+		JSONObject cookieValues = getRetainedValuesFromCookie(flowId, request);
+		
+		for(String retainValue: this.retainValues)
+		{
+			if(!jsonPayload.has(retainValue))
+				continue;
+			
+			cookieValues.put(retainValue, jsonPayload.get(retainValue));
+		}
+		
+		String newEncryptedCookieValue = this.encryptionHelper.generate(flowId, cookieValues);
+		
+		Cookie newEncryptedCookie = new Cookie(getCookieName(flowId), newEncryptedCookieValue);		
+		response.addCookie(newEncryptedCookie);
+		
 		if(log.isDebugEnabled())
-			log.debug("Process OPTIONS");
+			log.debug("Retained Values: " + cookieValues.toString(4));
 		
-		Builder targetRequestBuilder = HttpRequest.newBuilder().uri(getTargetUrl(request));
+		return cookieValues;
+	}
 
-		targetRequestBuilder.method("OPTIONS", BodyPublishers.noBody());
+	private JSONObject getRetainedValuesFromCookie(String flowId, HttpServletRequest request) throws EncryptionException {
+		for(Cookie cookie: request.getCookies())
+		{
+			if(!cookie.getName().equals(getCookieName(flowId)))
+				continue;
+			
+			return this.encryptionHelper.read(flowId, cookie.getValue());
+		}
 		
-		copyRequestHeaders(headers, request, targetRequestBuilder);
+		return new JSONObject();
+	}
 
-		HttpRequest targetRequest = targetRequestBuilder.build();
-		
-		HttpResponse<String> targetResponse = executeTargetRequest(targetRequest, response);
-
-		String responsePayload = getResponsePayload(targetResponse);
-
-		return new ResponseEntity<String>(responsePayload,
-				HttpStatus.valueOf(targetResponse.statusCode()));
+	private String getCookieName(String flowId) {
+		return "ST-RC-" + flowId;
 	}
 
 	private URI getTargetUrl(HttpServletRequest request) throws URISyntaxException {
@@ -170,6 +240,9 @@ public class PingOneAuthGatewayController {
 			url = String.format("https://%s%s?%s", this.authHost, request.getRequestURI(), request.getQueryString());
 		else
 			url = String.format("https://%s%s", this.authHost, request.getRequestURI());
+		
+		if(log.isDebugEnabled())
+			log.debug("Target URL: " + url);
 		
 		return new URI(url);
 	}

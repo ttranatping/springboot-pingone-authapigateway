@@ -24,6 +24,11 @@ ping:
   allowedOrigin: https://apps.pingone.com
   connectionTimeout: 30000
   maxConnections: 10
+  customValidators: invoiceNumber=com.pingidentity.pingone.authngateway.validators.impl.InvoiceNumber
+  retainValues:
+    claims: email,username
+    encryptionKey: '{"kty":"oct","k":"Fdh9u8rINxfivbrianbbVT1u232VQBZYKx1HGAGPt2I"}'
+  obfuscateValues: password
   registration:
     # Filter user populations to which the user will belong to while registration
     filterPopulationByDescription: false
@@ -35,6 +40,7 @@ oauth2:
     accessTokenUri: https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/as/token
     userAuthorizationUri: https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/as/authorize
     authorizationGrantType: client_credentials
+
 
 spring:
   thymeleaf:
