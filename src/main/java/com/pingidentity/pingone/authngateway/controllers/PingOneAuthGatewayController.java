@@ -82,9 +82,11 @@ public class PingOneAuthGatewayController {
 	private HttpClient httpClient = null;
 	
 	private Map<String, List<IValidator>> claimValidators = new HashMap<String, List<IValidator>>(); 
+	
+	private UserEnableMFA enableUserMFA = null;
 
 	@PostConstruct
-	public void init() throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException, EncryptionException, ClassNotFoundException, InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
+	public void init() throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException, EncryptionException, ClassNotFoundException, InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException, URISyntaxException {
 		
 		httpClient = HttpClient.newBuilder()
 			      .version(HttpClient.Version.HTTP_2)
@@ -114,6 +116,8 @@ public class PingOneAuthGatewayController {
 		}
 		
 		log.info("Registering encryptionKey: " + encryptionKey);
+		
+		this.enableUserMFA = new UserEnableMFA(authHost, apiHost, environmentId, workerClientId, workerClientSecret);
 		
 		this.encryptionHelper = new EncryptionHelper(encryptionKey, environmentId, retainValues);
 	}
@@ -212,17 +216,20 @@ public class PingOneAuthGatewayController {
 		JSONObject requestPayload = new JSONObject(bodyStr);
 		JSONObject userRequestPayload = requestPayload.has("user")?requestPayload.getJSONObject("user"):requestPayload;
 		
+		boolean hasValidated = false;
+		
 		for(String validatorClaim: this.claimValidators.keySet())
 		{
 			if(userRequestPayload.has(validatorClaim))
 			{
+				hasValidated = true;
 				for(IValidator validator : this.claimValidators.get(validatorClaim))
 					validator.validate(retainedValues, userRequestPayload);
-				
-				break;
 			}
 		}
 		
+		if(hasValidated)
+			this.enableUserMFA.enableMFA(retainedValues.getString("username"));
 	}
 
 	private String obfuscate(String bodyStr) {
