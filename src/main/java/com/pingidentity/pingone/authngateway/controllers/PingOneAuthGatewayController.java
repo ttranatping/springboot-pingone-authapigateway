@@ -32,7 +32,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.MultiValueMap;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -289,7 +288,7 @@ public class PingOneAuthGatewayController {
 
 	private URI getTargetUrl(HttpServletRequest request) throws URISyntaxException {
 		String url = null;
-		if(!StringUtils.isEmpty(request.getQueryString()))
+		if(request.getQueryString() != null && !request.getQueryString().trim().equals(""))
 			url = String.format("https://%s%s?%s", this.authHost, request.getRequestURI(), request.getQueryString());
 		else
 			url = String.format("https://%s%s", this.authHost, request.getRequestURI());
