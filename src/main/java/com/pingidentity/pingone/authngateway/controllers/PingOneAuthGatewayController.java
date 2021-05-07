@@ -50,6 +50,9 @@ public class PingOneAuthGatewayController {
 	
 	private static Logger log = LoggerFactory.getLogger(PingOneAuthGatewayController.class);
 
+	@Value("${ping.apiHost}")
+	private String apiHost;
+
 	@Value("${ping.authHost}")
 	private String authHost;
 	
@@ -67,6 +70,12 @@ public class PingOneAuthGatewayController {
 	
 	@Value("${ping.environmentId}")
 	private String environmentId;
+	
+	@Value("${oauth2.worker.clientId}")
+	private String workerClientId;
+	
+	@Value("${oauth2.worker.clientSecret}")
+	private String workerClientSecret;
 	
 	private EncryptionHelper encryptionHelper;
 
@@ -94,7 +103,7 @@ public class PingOneAuthGatewayController {
 			log.info("Validator class: " + validatorClass);
 			
 			Class<?> classForValidator = Class.forName(validatorClass);
-			IValidator validator = (IValidator) classForValidator.getConstructor(new Class[] {String.class}).newInstance(claimName);
+			IValidator validator = (IValidator) classForValidator.getConstructor(new Class[] {String.class, String.class, String.class, String.class, String.class, String.class}).newInstance(claimName, authHost, apiHost, environmentId, workerClientId, workerClientSecret);
 			
 			List<IValidator> validatorList = claimValidators.containsKey(claimName)?claimValidators.get(claimName):new ArrayList<IValidator>();
 			validatorList.add(validator);
@@ -209,6 +218,8 @@ public class PingOneAuthGatewayController {
 			{
 				for(IValidator validator : this.claimValidators.get(validatorClaim))
 					validator.validate(retainedValues, userRequestPayload);
+				
+				break;
 			}
 		}
 		

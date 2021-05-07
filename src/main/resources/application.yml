@@ -21,6 +21,7 @@ logging:
 ping:
   environmentId: ece262d3-48cc-443a-b0c8-a69f8066fe72
   authHost: auth.pingone.com
+  apiHost: api.pingone.com
   allowedOrigin: https://apps.pingone.com
   connectionTimeout: 30000
   maxConnections: 10
@@ -34,12 +35,9 @@ ping:
     filterPopulationByDescription: false
 
 oauth2:
-  client:
+  worker:
     clientId: cabd9f8d-f89c-4d57-af76-95689e28557d
-    clientSecret: bsIL-O1Qqz_1v2TQCefz2dRb6-YILdPlOHzy8EuJ~X2PeBhGCEZcz10FZtsTkqp6
-    accessTokenUri: https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/as/token
-    userAuthorizationUri: https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/as/authorize
-    authorizationGrantType: client_credentials
+    clientSecret: pxTe-.DYvmhQCJbfDFDwy858ae8tJEcrkIrNM~va1lH~TCZdJwtf2I~rvNdbqE6T
 
 
 spring:
