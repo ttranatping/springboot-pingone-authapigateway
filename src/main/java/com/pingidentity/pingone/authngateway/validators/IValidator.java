@@ -6,5 +6,5 @@ import com.pingidentity.pingone.authngateway.exceptions.CustomAPIErrorException;
 
 public interface IValidator {
 
-	public void validate(JSONObject retainedValues, String requestPayload) throws CustomAPIErrorException;
+	public void validate(JSONObject retainedValues, JSONObject requestPayload) throws CustomAPIErrorException;
 }

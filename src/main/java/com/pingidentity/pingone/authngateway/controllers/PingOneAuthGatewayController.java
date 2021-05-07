@@ -1,6 +1,7 @@
 package com.pingidentity.pingone.authngateway.controllers;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
@@ -12,6 +13,8 @@ import java.net.http.HttpResponse.BodyHandlers;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -37,7 +40,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 
+import com.pingidentity.pingone.authngateway.exceptions.CustomAPIErrorException;
 import com.pingidentity.pingone.authngateway.exceptions.EncryptionException;
+import com.pingidentity.pingone.authngateway.validators.IValidator;
 
 @Controller
 @RequestMapping("/")
@@ -66,9 +71,11 @@ public class PingOneAuthGatewayController {
 	private EncryptionHelper encryptionHelper;
 
 	private HttpClient httpClient = null;
+	
+	private Map<String, List<IValidator>> claimValidators = new HashMap<String, List<IValidator>>(); 
 
 	@PostConstruct
-	public void init() throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException, EncryptionException {
+	public void init() throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException, EncryptionException, ClassNotFoundException, InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
 		
 		httpClient = HttpClient.newBuilder()
 			      .version(HttpClient.Version.HTTP_2)
@@ -78,16 +85,23 @@ public class PingOneAuthGatewayController {
 		for(String customValidator: customValidators)
 		{
 			log.info("Registering customValidator: " + customValidator);
-		}
-		
-		for(String retainValue: retainValues)
-		{
-			log.info("Registering retainValue: " + retainValue);
-		}
-		
-		for(String obfuscateValue: obfuscateValues)
-		{
-			log.info("Registering obfuscateValue: " + obfuscateValue);
+			
+			String [] customValidatorSplit = customValidator.split("\\|");
+			
+			String claimName = customValidatorSplit[0];
+			String validatorClass = customValidatorSplit[1];
+			
+			log.info("Validator class: " + validatorClass);
+			
+			Class<?> classForValidator = Class.forName(validatorClass);
+			IValidator validator = (IValidator) classForValidator.getConstructor(new Class[] {String.class}).newInstance(claimName);
+			
+			List<IValidator> validatorList = claimValidators.containsKey(claimName)?claimValidators.get(claimName):new ArrayList<IValidator>();
+			validatorList.add(validator);
+			
+			claimValidators.put(claimName, validatorList);
+			
+			log.info("Successfully registered validator");
 		}
 		
 		log.info("Registering encryptionKey: " + encryptionKey);
@@ -161,12 +175,14 @@ public class PingOneAuthGatewayController {
 	public ResponseEntity<String> post(HttpServletRequest request, HttpServletResponse response,
 			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
 			@PathVariable(value = "envId", required = true) String envId,
-			@PathVariable(value = "flowId", required = true) String flowId) throws IOException, URISyntaxException, InterruptedException, EncryptionException {
+			@PathVariable(value = "flowId", required = true) String flowId) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
 
 		if(log.isDebugEnabled())
 			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
 		
 		JSONObject retainedValues = updateRetainedValues(request, response, flowId, bodyStr);
+		
+		validateRequestPayload(retainedValues, bodyStr);
 		
 		Builder targetRequestBuilder = HttpRequest.newBuilder().uri(getTargetUrl(request)).POST(BodyPublishers.ofString(bodyStr));
 
@@ -180,6 +196,22 @@ public class PingOneAuthGatewayController {
 		
 		return new ResponseEntity<String>(responsePayload,
 				HttpStatus.valueOf(targetResponse.statusCode()));
+	}
+
+	private void validateRequestPayload(JSONObject retainedValues, String bodyStr) throws CustomAPIErrorException {
+
+		JSONObject requestPayload = new JSONObject(bodyStr);
+		JSONObject userRequestPayload = requestPayload.has("user")?requestPayload.getJSONObject("user"):requestPayload;
+		
+		for(String validatorClaim: this.claimValidators.keySet())
+		{
+			if(userRequestPayload.has(validatorClaim))
+			{
+				for(IValidator validator : this.claimValidators.get(validatorClaim))
+					validator.validate(retainedValues, userRequestPayload);
+			}
+		}
+		
 	}
 
 	private String obfuscate(String bodyStr) {
@@ -219,6 +251,9 @@ public class PingOneAuthGatewayController {
 	}
 
 	private JSONObject getRetainedValuesFromCookie(String flowId, HttpServletRequest request) throws EncryptionException {
+		if(request.getCookies() == null)
+			return new JSONObject();
+		
 		for(Cookie cookie: request.getCookies())
 		{
 			if(!cookie.getName().equals(getCookieName(flowId)))
