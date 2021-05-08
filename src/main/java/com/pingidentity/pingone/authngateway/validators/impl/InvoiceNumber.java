@@ -32,7 +32,7 @@ public class InvoiceNumber implements IValidator {
 
 		String attributeValue = requestPayload.getString(attributeName);
 
-		String email = retainedValues.getString("email");
+		String email = retainedValues.getString("username");
 
 		if (!attributeValue.contains(email.substring(0, email.indexOf("@"))))
 			throw new CustomAPIErrorException(attributeName, "BAD_INVOICE",

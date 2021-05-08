@@ -1,6 +1,8 @@
 package com.pingidentity.pingone.authngateway.controllers;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -10,6 +12,7 @@ import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpRequest.Builder;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
@@ -18,12 +21,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
 
 import javax.annotation.PostConstruct;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.apache.commons.io.IOUtils;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +43,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import com.pingidentity.pingone.authngateway.exceptions.CustomAPIErrorException;
 import com.pingidentity.pingone.authngateway.exceptions.EncryptionException;
@@ -135,7 +141,7 @@ public class PingOneAuthGatewayController {
 
 		HttpRequest targetRequest = targetRequestBuilder.build();
 		
-		HttpResponse<String> targetResponse = executeTargetRequest(targetRequest, response, false);
+		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response, false);
 
 		String location = getLocationHeader(targetResponse, response);
 
@@ -147,6 +153,48 @@ public class PingOneAuthGatewayController {
 		response.addHeader(":status", "302");
 	}
 
+	@GetMapping(value = "/{envId}/experiences/{experienceId}", produces = "text/html;charset=UTF-8")
+	public ResponseEntity<String> getExperiences(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers,
+			@PathVariable(value = "envId", required = true) String envId,
+			@RequestParam String redirectUri) throws IOException, InterruptedException, URISyntaxException {
+
+		//https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/experiences/ed09e45e-f143-4713-af6c-d8188778870f?redirectUri=https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/flows/03b6b6bc-b456-4f8a-86d6-325f536c9a00/flowExecutionCallback
+		
+		String flowId = redirectUri.substring(redirectUri.indexOf("/flows/") + "/flows/".length()).replace("flowExecutionCallback", "").replaceAll("\\/", "");
+
+		if(log.isDebugEnabled())
+			log.debug("Process getExperiences flowId: " + flowId);
+		
+		return performGET(request, response, headers, envId);
+	}
+
+	@GetMapping(value = "/{envId}/flows/{flowId}/flowExecutionCallback", produces = "text/html;charset=UTF-8")
+	public ResponseEntity<String> getFlowExecutionCallback(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers,
+			@PathVariable(value = "envId", required = true) String envId,
+			@PathVariable(value = "flowId", required = true) String flowId,
+			@RequestParam String flowExecutionId) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
+
+		//https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/experiences/ed09e45e-f143-4713-af6c-d8188778870f?redirectUri=https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/flows/03b6b6bc-b456-4f8a-86d6-325f536c9a00/flowExecutionCallback
+		
+		if(log.isDebugEnabled())
+			log.debug("Process getFlowExecutionCallback flowId: " + flowId);
+		
+		//copying flow execution cookie to flow cookie
+		JSONObject cookieValues = getRetainedValuesFromCookie(flowExecutionId, request);
+		if(cookieValues != null)
+		{
+			if(log.isDebugEnabled())
+				log.debug("copying flow execution cookie to flow cookie");
+			
+			String newEncryptedCookieValue = this.encryptionHelper.generate(flowId, cookieValues);
+			addCookie(this.getCookieName(flowId), newEncryptedCookieValue, response);
+		}
+		
+		return performGET(request, response, headers, envId);
+	}
+
 	@GetMapping(value = "/{envId}/**", produces = "application/hal+json;charset=UTF-8")
 	public ResponseEntity<String> get(HttpServletRequest request, HttpServletResponse response,
 			@RequestHeader MultiValueMap<String, String> headers,
@@ -155,13 +203,21 @@ public class PingOneAuthGatewayController {
 		if(log.isDebugEnabled())
 			log.debug("Process GET");
 		
+		return performGET(request, response, headers, envId);
+	}
+	
+	private ResponseEntity<String> performGET(HttpServletRequest request, HttpServletResponse response,
+			MultiValueMap<String, String> headers,
+			String envId) throws URISyntaxException, IOException, InterruptedException
+	{
+		
 		Builder targetRequestBuilder = HttpRequest.newBuilder().uri(getTargetUrl(request)).GET();
 
 		copyRequestHeaders(headers, request, targetRequestBuilder);
 
 		HttpRequest targetRequest = targetRequestBuilder.build();
 		
-		HttpResponse<String> targetResponse = executeTargetRequest(targetRequest, response);
+		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response);
 
 		String responsePayload = getResponsePayload(targetResponse);
 
@@ -169,7 +225,7 @@ public class PingOneAuthGatewayController {
 				HttpStatus.valueOf(targetResponse.statusCode()));
 	}
 	
-	private String getLocationHeader(HttpResponse<String> targetResponse, HttpServletResponse response) throws IOException, InterruptedException
+	private String getLocationHeader(HttpResponse<InputStream> targetResponse, HttpServletResponse response) throws IOException, InterruptedException
 	{
 		List<String> locationHeader = targetResponse.headers().map().get("location");
 		
@@ -192,6 +248,30 @@ public class PingOneAuthGatewayController {
 		if(log.isDebugEnabled())
 			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
 		
+		if(log.isDebugEnabled())
+			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
+		
+		return performPOST(request, response, headers, bodyStr, envId, flowId);
+	}
+
+	@PostMapping(value = "/{envId}/flowExecutions/{flowExecutionId}", produces = "application/json;charset=UTF-8")
+	public ResponseEntity<String> postExecution(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
+			@PathVariable(value = "envId", required = true) String envId,
+			@PathVariable(value = "flowExecutionId", required = true) String flowExecutionId) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
+
+		if(log.isDebugEnabled())
+			log.debug(String.format("Process postExecution - FlowId: %s, with body: %s", flowExecutionId, obfuscate(bodyStr)));
+		
+		return performPOST(request, response, headers, bodyStr, envId, flowExecutionId);
+	}
+	
+	private ResponseEntity<String> performPOST(HttpServletRequest request, HttpServletResponse response,
+			MultiValueMap<String, String> headers, String bodyStr,
+			String envId,
+			String flowId) throws EncryptionException, URISyntaxException, CustomAPIErrorException, IOException, InterruptedException
+	{
+		
 		JSONObject retainedValues = updateRetainedValues(request, response, flowId, bodyStr);
 		
 		validateRequestPayload(retainedValues, bodyStr);
@@ -202,7 +282,7 @@ public class PingOneAuthGatewayController {
 
 		HttpRequest targetRequest = targetRequestBuilder.build();
 		
-		HttpResponse<String> targetResponse = executeTargetRequest(targetRequest, response);
+		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response);
 		
 		String responsePayload = getResponsePayload(targetResponse);
 		
@@ -245,26 +325,35 @@ public class PingOneAuthGatewayController {
 
 	private JSONObject updateRetainedValues(HttpServletRequest request, HttpServletResponse response, String flowId, String bodyStr) throws EncryptionException {
 		JSONObject jsonPayload = new JSONObject(bodyStr);
+		JSONObject userRequestPayload = jsonPayload.has("user")?jsonPayload.getJSONObject("user"):jsonPayload;
 		
 		JSONObject cookieValues = getRetainedValuesFromCookie(flowId, request);
 		
 		for(String retainValue: this.retainValues)
 		{
-			if(!jsonPayload.has(retainValue))
+			if(!userRequestPayload.has(retainValue))
 				continue;
 			
-			cookieValues.put(retainValue, jsonPayload.get(retainValue));
+			cookieValues.put(retainValue, userRequestPayload.get(retainValue));
 		}
 		
 		String newEncryptedCookieValue = this.encryptionHelper.generate(flowId, cookieValues);
 		
-		Cookie newEncryptedCookie = new Cookie(getCookieName(flowId), newEncryptedCookieValue);		
-		response.addCookie(newEncryptedCookie);
+		addCookie(getCookieName(flowId), newEncryptedCookieValue, response);
 		
 		if(log.isDebugEnabled())
 			log.debug("Retained Values: " + cookieValues.toString(4));
 		
 		return cookieValues;
+	}
+	
+	private void addCookie(String cookieName, String cookieValue, HttpServletResponse response)
+	{
+		Cookie newCookie = new Cookie(cookieName, cookieValue);	
+		newCookie.setPath("/");
+		newCookie.setHttpOnly(true);
+		newCookie.setSecure(true);
+		response.addCookie(newCookie);
 	}
 
 	private JSONObject getRetainedValuesFromCookie(String flowId, HttpServletRequest request) throws EncryptionException {
@@ -280,6 +369,21 @@ public class PingOneAuthGatewayController {
 		}
 		
 		return new JSONObject();
+	}
+
+	private Cookie getCookie(String cookieName, HttpServletRequest request) {
+		if(request.getCookies() == null)
+			return null;
+		
+		for(Cookie cookie: request.getCookies())
+		{
+			if(!cookie.getName().equals(cookieName))
+				continue;
+			
+			return cookie;
+		}
+		
+		return null;
 	}
 
 	private String getCookieName(String flowId) {
@@ -318,7 +422,7 @@ public class PingOneAuthGatewayController {
 	    
 	}
 
-	private String getResponsePayload(HttpResponse<String> response) throws UnsupportedOperationException, IOException {
+	private String getResponsePayload(HttpResponse<InputStream> response) throws UnsupportedOperationException, IOException {
 		if (response == null) {
 			return null;
 		}
@@ -331,28 +435,30 @@ public class PingOneAuthGatewayController {
 				log.debug("No body");
 			return "";
 		} else {
-			String body = response.body();
+			InputStream bodyInputStream = getDecodedInputStream(response);
+			
+		    String text = IOUtils.toString(bodyInputStream, StandardCharsets.UTF_8.name());
 
 			if(log.isDebugEnabled())
-				log.debug("Body: " + body);
+				log.debug("Body: " + text);
 			
-			return body;
+			return text;
 		}
 
 	}
-	private HttpResponse<String> executeTargetRequest(HttpRequest targetRequest, HttpServletResponse response) throws IOException, InterruptedException {
+	private HttpResponse<InputStream> executeTargetRequest(HttpRequest targetRequest, HttpServletResponse response) throws IOException, InterruptedException {
 		return executeTargetRequest(targetRequest, response, true);
 	}
 
-	private HttpResponse<String> executeTargetRequest(HttpRequest targetRequest, HttpServletResponse response, boolean isSetResponseHeaders) throws IOException, InterruptedException {
+	private HttpResponse<InputStream> executeTargetRequest(HttpRequest targetRequest, HttpServletResponse response, boolean isSetResponseHeaders) throws IOException, InterruptedException {
 
-		HttpResponse<String> targetResponse = httpClient.send(targetRequest, BodyHandlers.ofString());
+		HttpResponse<InputStream> targetResponse = httpClient.send(targetRequest, BodyHandlers.ofInputStream());
 		
 		if(isSetResponseHeaders)
 		{
 			for(String headerName: targetResponse.headers().map().keySet())
 			{				
-				if(headerName.equalsIgnoreCase(":status") || headerName.equalsIgnoreCase("content-type") || headerName.equalsIgnoreCase("content-length") || headerName.toLowerCase().startsWith("access-control"))
+				if(headerName.equalsIgnoreCase(":status") || headerName.equalsIgnoreCase("content-encoding") || headerName.equalsIgnoreCase("content-type") || headerName.equalsIgnoreCase("content-length") || headerName.toLowerCase().startsWith("access-control"))
 					continue;
 				
 				for(String headerValue: targetResponse.headers().allValues(headerName))
@@ -365,6 +471,29 @@ public class PingOneAuthGatewayController {
 		}
 		
 		return targetResponse;
+	}
+	
+	private static InputStream getDecodedInputStream(
+	        HttpResponse<InputStream> httpResponse) {
+	    String encoding = determineContentEncoding(httpResponse);
+	    try {
+	        switch (encoding) {
+	            case "":
+	                return httpResponse.body();
+	            case "gzip":
+	                return new GZIPInputStream(httpResponse.body());
+	            default:
+	                throw new UnsupportedOperationException(
+	                        "Unexpected Content-Encoding: " + encoding);
+	        }
+	    } catch (IOException ioe) {
+	        throw new UncheckedIOException(ioe);
+	    }
+	}
+
+	private static String determineContentEncoding(
+	        HttpResponse<?> httpResponse) {
+	    return httpResponse.headers().firstValue("Content-Encoding").orElse("");
 	}
 
 }
