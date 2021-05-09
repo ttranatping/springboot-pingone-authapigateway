@@ -1,0 +1,57 @@
+server:
+  port: 443
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain,application/javascript,text/css
+    min-response-size: 1024
+  http2:
+    enabled: true
+  ssl:
+    key-store-type: PKCS12
+    key-store: cert/network.p12
+    key-store-password: P@ssword1
+    key-alias: 1
+    enabled: true
+
+logging:
+  level:
+    root: info
+    org.springframework.web: info
+    org.springframework.security: info
+    org.springframework.security.oauth2: info
+    org.springframework.boot.autoconfigure: info
+    com.pingidentity.pingone: DEBUG
+
+ping:
+  environmentId: ece262d3-48cc-443a-b0c8-a69f8066fe72
+  authHost: auth.pingone.com
+  apiHost: api.pingone.com
+  allowedOrigin: https://apps.pingone.com
+  connectionTimeout: 30000
+  maxConnections: 10
+  customValidators:
+    invoiceNumberValidator:
+      attributeName: invoiceNumber
+  retainValues:
+    claims: email,username
+    encryptionKey: '{"kty":"oct","k":"Fdh9u8rINxfivbrianbbVT1u232VQBZYKx1HGAGPt2I"}'
+  obfuscateValues: password
+  registration:
+    # Filter user populations to which the user will belong to while registration
+    filterPopulationByDescription: false
+
+oauth2:
+  worker:
+    clientId: yyy
+    clientSecret: xxx
+
+
+spring:
+  thymeleaf:
+    enabled: false
+  security:
+    ignored: /**
+  mvc:
+    favicon:
+      enabled: false
+
