@@ -29,7 +29,9 @@ ping:
   allowedOrigin: https://apps.pingone.com
   connectionTimeout: 30000
   maxConnections: 10
-  customValidators: invoiceNumber|com.pingidentity.pingone.authngateway.validators.impl.InvoiceNumber
+  customValidators:
+    invoiceNumberValidator:
+      attributeName: invoiceNumber
   retainValues:
     claims: email,username
     encryptionKey: '{"kty":"oct","k":"Fdh9u8rINxfivbrianbbVT1u232VQBZYKx1HGAGPt2I"}'
@@ -40,8 +42,8 @@ ping:
 
 oauth2:
   worker:
-    clientId: cabd9f8d-f89c-4d57-af76-95689e28557d
-    clientSecret: pxTe-.DYvmhQCJbfDFDwy858ae8tJEcrkIrNM~va1lH~TCZdJwtf2I~rvNdbqE6T
+    clientId: yyy
+    clientSecret: xxx
 
 
 spring:

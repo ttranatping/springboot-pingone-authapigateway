@@ -12,36 +12,47 @@ import java.net.http.HttpRequest.Builder;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 
+import javax.annotation.PostConstruct;
+
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 import com.pingidentity.pingone.authngateway.exceptions.CustomAPIErrorException;
 
+@Component
 public class UserEnableMFA {
 
 	private static Logger log = LoggerFactory.getLogger(UserEnableMFA.class);
 
-	private final String attributeName;
-	private final String authHost;
-	private final String apiHost;
-	private final String environmentId;
-	private final String workerClientId;
-	private final String workerClientSecret;
-	private final URI tokenEndpoint;
-	private final String userAPIEndpoint;
+	private String attributeName;
+
+	@Value("${ping.authHost}")
+	private String authHost;
+
+	@Value("${ping.apiHost}")
+	private String apiHost;
+	
+	@Value("${ping.environmentId}")
+	private String environmentId;
+	
+	@Value("${oauth2.worker.clientId}")
+	private String workerClientId;
+	
+	@Value("${oauth2.worker.clientSecret}")
+	private String workerClientSecret;
+	
+	private URI tokenEndpoint;
+	private String userAPIEndpoint;
 	private String accessToken = null;
 
-	private final HttpClient httpClient;
+	private HttpClient httpClient;
 
-	public UserEnableMFA(String authHost, String apiHost, String environmentId, String workerClientId,
-			String workerClientSecret) throws URISyntaxException {
+	@PostConstruct
+	public void init() throws URISyntaxException {
 		this.attributeName = "enablemfa";
-		this.authHost = authHost;
-		this.apiHost = apiHost;
-		this.environmentId = environmentId;
-		this.workerClientId = workerClientId;
-		this.workerClientSecret = workerClientSecret;
 
 		this.tokenEndpoint = new URI(String.format("https://%s/%s/as/token", this.authHost, this.environmentId));
 		this.userAPIEndpoint = String.format("https://%s/v1/environments/%s/users", this.apiHost, this.environmentId);

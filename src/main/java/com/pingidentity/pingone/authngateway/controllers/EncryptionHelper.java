@@ -1,5 +1,7 @@
 package com.pingidentity.pingone.authngateway.controllers;
 
+import javax.annotation.PostConstruct;
+
 import org.jose4j.jwe.ContentEncryptionAlgorithmIdentifiers;
 import org.jose4j.jwe.JsonWebEncryption;
 import org.jose4j.jwe.KeyManagementAlgorithmIdentifiers;
@@ -11,22 +13,36 @@ import org.jose4j.jwt.consumer.JwtConsumer;
 import org.jose4j.jwt.consumer.JwtConsumerBuilder;
 import org.jose4j.lang.JoseException;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Controller;
 
 import com.pingidentity.pingone.authngateway.exceptions.EncryptionException;
 
+@Controller
 public class EncryptionHelper {
+	
+	private static Logger log = LoggerFactory.getLogger(EncryptionHelper.class);
 
 	private JsonWebKey jsonWebKey = null;
-	private final String encryptionJWK, issuer;
-	private final String[] retainAttributeList;
+
+	@Value("${ping.retainValues.encryptionKey}")
+	private String encryptionJWK;
+
+	@Value("${ping.environmentId}")
+	private String issuer;
 	
-	private final JwtConsumer jwtConsumer;
+	@Value("${ping.retainValues.claims}")
+	private String[] retainAttributeList;
 	
-	public EncryptionHelper(String encryptionJWK, String issuer, String[] retainAttributeList) throws EncryptionException
-	{
-		this.encryptionJWK = encryptionJWK;
-		this.issuer = issuer;
-		this.retainAttributeList = retainAttributeList;
+	private JwtConsumer jwtConsumer;
+	
+	@PostConstruct
+	public void init() throws EncryptionException
+	{		
+		if(log.isDebugEnabled())
+			log.debug("Registering encryptionKey: " + encryptionJWK);
 		
 		try {
 			jwtConsumer = generateNewConsumer();

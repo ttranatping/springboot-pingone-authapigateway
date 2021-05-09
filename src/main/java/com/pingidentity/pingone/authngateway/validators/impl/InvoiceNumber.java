@@ -1,23 +1,34 @@
 package com.pingidentity.pingone.authngateway.validators.impl;
 
-import java.net.URISyntaxException;
+import javax.annotation.PostConstruct;
 
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 import com.pingidentity.pingone.authngateway.exceptions.CustomAPIErrorException;
 import com.pingidentity.pingone.authngateway.validators.IValidator;
+import com.pingidentity.pingone.authngateway.validators.ValidatorRegister;
 
+@Component
 public class InvoiceNumber implements IValidator {
 
 	private static Logger log = LoggerFactory.getLogger(InvoiceNumber.class);
 
-	private final String attributeName;
+	@Value("${ping.customValidators.invoiceNumberValidator.attributeName}")
+	private String attributeName;
+	
+	@Autowired
+	private ValidatorRegister registeredValidators;
+	
 
-	public InvoiceNumber(String attributeName, String authHost, String apiHost, String environmentId, String workerClientId,
-			String workerClientSecret) throws URISyntaxException {
-		this.attributeName = attributeName;
+	@PostConstruct
+	public void init()
+	{
+		registeredValidators.register(this);
 	}
 
 	@Override
@@ -38,6 +49,20 @@ public class InvoiceNumber implements IValidator {
 			throw new CustomAPIErrorException(attributeName, "BAD_INVOICE",
 					"Invoice does not match the registered user", "BAD_INVOICE",
 					"Invoice does not match the registered user");
+	}
+
+	@Override
+	public boolean isApplicable(JSONObject userRequestPayload) {
+		if(userRequestPayload == null)
+			return false;
+		
+		return userRequestPayload.has(this.attributeName);
+	}
+
+	@Override
+	public String info() {
+		// TODO Auto-generated method stub
+		return InvoiceNumber.class.getCanonicalName() + ":" + this.attributeName;
 	}
 
 }

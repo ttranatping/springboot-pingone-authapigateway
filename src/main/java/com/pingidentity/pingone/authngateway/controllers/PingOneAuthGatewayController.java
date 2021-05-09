@@ -16,10 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
@@ -32,6 +29,7 @@ import org.apache.commons.io.IOUtils;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -48,6 +46,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import com.pingidentity.pingone.authngateway.exceptions.CustomAPIErrorException;
 import com.pingidentity.pingone.authngateway.exceptions.EncryptionException;
 import com.pingidentity.pingone.authngateway.validators.IValidator;
+import com.pingidentity.pingone.authngateway.validators.ValidatorRegister;
 
 @Controller
 @RequestMapping("/")
@@ -55,14 +54,11 @@ public class PingOneAuthGatewayController {
 	
 	private static Logger log = LoggerFactory.getLogger(PingOneAuthGatewayController.class);
 
-	@Value("${ping.apiHost}")
-	private String apiHost;
+	@Autowired
+	private ValidatorRegister registeredValidators;
 
 	@Value("${ping.authHost}")
 	private String authHost;
-	
-	@Value("${ping.customValidators}")
-	private String[] customValidators;
 	
 	@Value("${ping.retainValues.claims}")
 	private String[] retainValues;
@@ -70,25 +66,13 @@ public class PingOneAuthGatewayController {
 	@Value("${ping.obfuscateValues}")
 	private String[] obfuscateValues;
 	
-	@Value("${ping.retainValues.encryptionKey}")
-	private String encryptionKey;
-	
-	@Value("${ping.environmentId}")
-	private String environmentId;
-	
-	@Value("${oauth2.worker.clientId}")
-	private String workerClientId;
-	
-	@Value("${oauth2.worker.clientSecret}")
-	private String workerClientSecret;
-	
+	@Autowired
 	private EncryptionHelper encryptionHelper;
 
 	private HttpClient httpClient = null;
 	
-	private Map<String, List<IValidator>> claimValidators = new HashMap<String, List<IValidator>>(); 
-	
-	private UserEnableMFA enableUserMFA = null;
+	@Autowired
+	private UserEnableMFA enableUserMFA;
 
 	@PostConstruct
 	public void init() throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException, EncryptionException, ClassNotFoundException, InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException, URISyntaxException {
@@ -98,33 +82,6 @@ public class PingOneAuthGatewayController {
 			      .followRedirects(HttpClient.Redirect.NEVER)
 			      .build();
 		
-		for(String customValidator: customValidators)
-		{
-			log.info("Registering customValidator: " + customValidator);
-			
-			String [] customValidatorSplit = customValidator.split("\\|");
-			
-			String claimName = customValidatorSplit[0];
-			String validatorClass = customValidatorSplit[1];
-			
-			log.info("Validator class: " + validatorClass);
-			
-			Class<?> classForValidator = Class.forName(validatorClass);
-			IValidator validator = (IValidator) classForValidator.getConstructor(new Class[] {String.class, String.class, String.class, String.class, String.class, String.class}).newInstance(claimName, authHost, apiHost, environmentId, workerClientId, workerClientSecret);
-			
-			List<IValidator> validatorList = claimValidators.containsKey(claimName)?claimValidators.get(claimName):new ArrayList<IValidator>();
-			validatorList.add(validator);
-			
-			claimValidators.put(claimName, validatorList);
-			
-			log.info("Successfully registered validator");
-		}
-		
-		log.info("Registering encryptionKey: " + encryptionKey);
-		
-		this.enableUserMFA = new UserEnableMFA(authHost, apiHost, environmentId, workerClientId, workerClientSecret);
-		
-		this.encryptionHelper = new EncryptionHelper(encryptionKey, environmentId, retainValues);
 	}
 
 	@GetMapping("/{envId}/as/authorize")
@@ -159,8 +116,6 @@ public class PingOneAuthGatewayController {
 			@PathVariable(value = "envId", required = true) String envId,
 			@RequestParam String redirectUri) throws IOException, InterruptedException, URISyntaxException {
 
-		//https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/experiences/ed09e45e-f143-4713-af6c-d8188778870f?redirectUri=https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/flows/03b6b6bc-b456-4f8a-86d6-325f536c9a00/flowExecutionCallback
-		
 		String flowId = redirectUri.substring(redirectUri.indexOf("/flows/") + "/flows/".length()).replace("flowExecutionCallback", "").replaceAll("\\/", "");
 
 		if(log.isDebugEnabled())
@@ -176,8 +131,6 @@ public class PingOneAuthGatewayController {
 			@PathVariable(value = "flowId", required = true) String flowId,
 			@RequestParam String flowExecutionId) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
 
-		//https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/experiences/ed09e45e-f143-4713-af6c-d8188778870f?redirectUri=https://auth.pingone.com/ece262d3-48cc-443a-b0c8-a69f8066fe72/flows/03b6b6bc-b456-4f8a-86d6-325f536c9a00/flowExecutionCallback
-		
 		if(log.isDebugEnabled())
 			log.debug("Process getFlowExecutionCallback flowId: " + flowId);
 		
@@ -204,6 +157,33 @@ public class PingOneAuthGatewayController {
 			log.debug("Process GET");
 		
 		return performGET(request, response, headers, envId);
+	}
+
+	@PostMapping(value = "/{envId}/flows/{flowId}", produces = "application/hal+json;charset=UTF-8")
+	public ResponseEntity<String> post(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
+			@PathVariable(value = "envId", required = true) String envId,
+			@PathVariable(value = "flowId", required = true) String flowId) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
+
+		if(log.isDebugEnabled())
+			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
+		
+		if(log.isDebugEnabled())
+			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
+		
+		return performPOST(request, response, headers, bodyStr, envId, flowId);
+	}
+
+	@PostMapping(value = "/{envId}/flowExecutions/{flowExecutionId}", produces = "application/json;charset=UTF-8")
+	public ResponseEntity<String> postExecution(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
+			@PathVariable(value = "envId", required = true) String envId,
+			@PathVariable(value = "flowExecutionId", required = true) String flowExecutionId) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
+
+		if(log.isDebugEnabled())
+			log.debug(String.format("Process postExecution - FlowId: %s, with body: %s", flowExecutionId, obfuscate(bodyStr)));
+		
+		return performPOST(request, response, headers, bodyStr, envId, flowExecutionId);
 	}
 	
 	private ResponseEntity<String> performGET(HttpServletRequest request, HttpServletResponse response,
@@ -238,33 +218,6 @@ public class PingOneAuthGatewayController {
 		
 		throw new InterruptedException("HTTP 302 Status found with no location header");
 	}
-
-	@PostMapping(value = "/{envId}/flows/{flowId}", produces = "application/hal+json;charset=UTF-8")
-	public ResponseEntity<String> post(HttpServletRequest request, HttpServletResponse response,
-			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
-			@PathVariable(value = "envId", required = true) String envId,
-			@PathVariable(value = "flowId", required = true) String flowId) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
-
-		if(log.isDebugEnabled())
-			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
-		
-		if(log.isDebugEnabled())
-			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
-		
-		return performPOST(request, response, headers, bodyStr, envId, flowId);
-	}
-
-	@PostMapping(value = "/{envId}/flowExecutions/{flowExecutionId}", produces = "application/json;charset=UTF-8")
-	public ResponseEntity<String> postExecution(HttpServletRequest request, HttpServletResponse response,
-			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
-			@PathVariable(value = "envId", required = true) String envId,
-			@PathVariable(value = "flowExecutionId", required = true) String flowExecutionId) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
-
-		if(log.isDebugEnabled())
-			log.debug(String.format("Process postExecution - FlowId: %s, with body: %s", flowExecutionId, obfuscate(bodyStr)));
-		
-		return performPOST(request, response, headers, bodyStr, envId, flowExecutionId);
-	}
 	
 	private ResponseEntity<String> performPOST(HttpServletRequest request, HttpServletResponse response,
 			MultiValueMap<String, String> headers, String bodyStr,
@@ -297,14 +250,14 @@ public class PingOneAuthGatewayController {
 		
 		boolean hasValidated = false;
 		
-		for(String validatorClaim: this.claimValidators.keySet())
+		for(IValidator validator: this.registeredValidators.getRegisteredValidators())
 		{
-			if(userRequestPayload.has(validatorClaim))
-			{
-				hasValidated = true;
-				for(IValidator validator : this.claimValidators.get(validatorClaim))
-					validator.validate(retainedValues, userRequestPayload);
-			}
+			if(!validator.isApplicable(userRequestPayload))
+				continue;
+			
+			hasValidated = true;
+			
+			validator.validate(retainedValues, userRequestPayload);
 		}
 		
 		if(hasValidated)
@@ -371,21 +324,6 @@ public class PingOneAuthGatewayController {
 		return new JSONObject();
 	}
 
-	private Cookie getCookie(String cookieName, HttpServletRequest request) {
-		if(request.getCookies() == null)
-			return null;
-		
-		for(Cookie cookie: request.getCookies())
-		{
-			if(!cookie.getName().equals(cookieName))
-				continue;
-			
-			return cookie;
-		}
-		
-		return null;
-	}
-
 	private String getCookieName(String flowId) {
 		return "ST-RC-" + flowId;
 	}
@@ -446,6 +384,7 @@ public class PingOneAuthGatewayController {
 		}
 
 	}
+	
 	private HttpResponse<InputStream> executeTargetRequest(HttpRequest targetRequest, HttpServletResponse response) throws IOException, InterruptedException {
 		return executeTargetRequest(targetRequest, response, true);
 	}
