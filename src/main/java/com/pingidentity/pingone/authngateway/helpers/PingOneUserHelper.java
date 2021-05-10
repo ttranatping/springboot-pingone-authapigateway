@@ -23,9 +23,9 @@ import org.springframework.stereotype.Component;
 import com.pingidentity.pingone.authngateway.exceptions.CustomAPIErrorException;
 
 @Component
-public class UserEnableMFA {
+public class PingOneUserHelper {
 
-	private static Logger log = LoggerFactory.getLogger(UserEnableMFA.class);
+	private static Logger log = LoggerFactory.getLogger(PingOneUserHelper.class);
 
 	private String attributeName;
 
@@ -44,9 +44,6 @@ public class UserEnableMFA {
 	@Value("${oauth2.worker.clientSecret}")
 	private String workerClientSecret;
 	
-	@Value("${ping.retainValues.key}")
-	private String[] retainValueKeys;
-	
 	private URI tokenEndpoint;
 	private String userAPIEndpoint;
 	private String accessToken = null;
@@ -64,17 +61,10 @@ public class UserEnableMFA {
 				.followRedirects(HttpClient.Redirect.NEVER).build();
 	}
 
-	public boolean enableMFA(String username) throws CustomAPIErrorException {
+	public boolean enableMFA(String username, String retainValueKey) throws CustomAPIErrorException {
 		createAccessToken();
 
-		String userId = null;
-		for(String retainValueKey: retainValueKeys)
-		{
-			userId = getUserId(username, retainValueKey);
-			
-			if(userId != null)
-				break;
-		}
+		String userId = getUserId(username, retainValueKey);
 		
 		if(userId == null)
 			return false;
@@ -120,8 +110,20 @@ public class UserEnableMFA {
 		return true;
 		
 	}
+
 	
-	private String getUserId(String username, String retainValueKey) throws CustomAPIErrorException
+	public String getUserId(String username, String retainValueKey) throws CustomAPIErrorException
+	{
+		return getUser(username, retainValueKey, "id");
+	}
+
+	
+	public String getUserName(String username, String retainValueKey) throws CustomAPIErrorException
+	{
+		return getUser(username, retainValueKey, "username");
+	}
+	
+	private String getUser(String username, String retainValueKey, String attributeName) throws CustomAPIErrorException
 	{
 		String filter = null;
 		try {
@@ -186,14 +188,14 @@ public class UserEnableMFA {
 			return null;
 		}
 		
-		Object idObject = userResponse.query("/_embedded/users/0/id");
+		Object idObject = userResponse.query("/_embedded/users/0/" + attributeName);
 		
 		if(idObject == null)
 			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Ambiguous user. Please contact support",
 					"UNKNOWN", "Ambiguous user. Could not determine id value for user.");
 		
 		if(log.isDebugEnabled())
-			log.debug("User ID Value: " + idObject);
+			log.debug("User Value: " + idObject);
 		
 		return String.valueOf(idObject);
 	}

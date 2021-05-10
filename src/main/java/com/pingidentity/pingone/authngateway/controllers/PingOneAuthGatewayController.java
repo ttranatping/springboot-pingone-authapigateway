@@ -29,6 +29,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.io.IOUtils;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,7 +50,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import com.pingidentity.pingone.authngateway.exceptions.CustomAPIErrorException;
 import com.pingidentity.pingone.authngateway.exceptions.EncryptionException;
 import com.pingidentity.pingone.authngateway.helpers.EncryptionHelper;
-import com.pingidentity.pingone.authngateway.helpers.UserEnableMFA;
+import com.pingidentity.pingone.authngateway.helpers.PingOneUserHelper;
 import com.pingidentity.pingone.authngateway.validators.IValidator;
 import com.pingidentity.pingone.authngateway.validators.ValidatorRegister;
 
@@ -80,7 +81,7 @@ public class PingOneAuthGatewayController {
 	private HttpClient httpClient = null;
 	
 	@Autowired
-	private UserEnableMFA enableUserMFA;
+	private PingOneUserHelper p1UserHelper;
 
 	@PostConstruct
 	public void init() throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException, EncryptionException, ClassNotFoundException, InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException, URISyntaxException {
@@ -295,29 +296,15 @@ public class PingOneAuthGatewayController {
 		Map<String, Object> userRequestPayloadMap = convertJSONToUnmodifiableMap(userRequestPayload);
 		Map<String, Object> retainedValuesMap = convertJSONToUnmodifiableMap(retainedValues);
 		
-		boolean hasValidated = false;
-		
 		for(IValidator validator: this.registeredValidators.getRegisteredValidators())
 		{
 			if(!validator.isApplicable(userRequestPayloadMap))
 				continue;
 			
-			hasValidated = true;
-			
 			validator.validate(retainedValuesMap, userRequestPayloadMap);
 		}
 		
-		if(hasValidated)
-		{
-			for(String retainValueKey: retainValueKeys)
-			{
-				if(!retainedValues.has(retainValueKey))
-					continue;
-				
-				if(this.enableUserMFA.enableMFA(retainedValues.getString(retainValueKey)))
-					break;
-			}
-		}
+		this.p1UserHelper.enableMFA(retainedValues.getString("username"), "username");
 	}
 
 	private Map<String, Object> convertJSONToUnmodifiableMap(JSONObject userRequestPayload) {
@@ -381,6 +368,26 @@ public class PingOneAuthGatewayController {
 				continue;
 			
 			retainAttributes.put(retainValue, userRequestPayload.get(retainValue));
+		}
+		
+		if(!retainAttributes.has("username"))
+		{
+			for(String retainValueKey : this.retainValueKeys)
+			{
+				if(retainValueKey.equals("username"))
+					continue;
+				
+				if(!retainAttributes.has(retainValueKey))
+					continue;
+				
+				try {
+					String username = this.p1UserHelper.getUserName(String.valueOf(retainAttributes.get(retainValueKey)), retainValueKey);
+					retainAttributes.put("username", username);
+					
+				} catch (JSONException | CustomAPIErrorException e) {
+					continue;
+				}
+			}
 		}
 		
 		String newEncryptedCookieValue = this.encryptionHelper.generate(flowId, retainAttributes);
