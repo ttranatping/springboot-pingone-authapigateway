@@ -296,15 +296,20 @@ public class PingOneAuthGatewayController {
 		Map<String, Object> userRequestPayloadMap = convertJSONToUnmodifiableMap(userRequestPayload);
 		Map<String, Object> retainedValuesMap = convertJSONToUnmodifiableMap(retainedValues);
 		
+		boolean hasValidated = false;
+		
 		for(IValidator validator: this.registeredValidators.getRegisteredValidators())
 		{
 			if(!validator.isApplicable(userRequestPayloadMap))
 				continue;
 			
+			hasValidated = true;
+			
 			validator.validate(retainedValuesMap, userRequestPayloadMap);
 		}
 		
-		this.p1UserHelper.enableMFA(retainedValues.getString("username"), "username");
+		if(hasValidated)
+			this.p1UserHelper.enableMFA(retainedValues.getString("username"), "username");
 	}
 
 	private Map<String, Object> convertJSONToUnmodifiableMap(JSONObject userRequestPayload) {

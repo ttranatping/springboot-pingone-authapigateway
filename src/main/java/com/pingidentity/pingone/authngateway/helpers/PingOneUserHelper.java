@@ -114,16 +114,16 @@ public class PingOneUserHelper {
 	
 	public String getUserId(String username, String retainValueKey) throws CustomAPIErrorException
 	{
-		return getUser(username, retainValueKey, "id");
+		return getUser(username, retainValueKey).getString("id");
 	}
 
 	
 	public String getUserName(String username, String retainValueKey) throws CustomAPIErrorException
 	{
-		return getUser(username, retainValueKey, "username");
+		return getUser(username, retainValueKey).getString("username");
 	}
 	
-	private String getUser(String username, String retainValueKey, String attributeName) throws CustomAPIErrorException
+	public JSONObject getUser(String username, String retainValueKey) throws CustomAPIErrorException
 	{
 		String filter = null;
 		try {
@@ -188,16 +188,9 @@ public class PingOneUserHelper {
 			return null;
 		}
 		
-		Object idObject = userResponse.query("/_embedded/users/0/" + attributeName);
+		Object idObject = userResponse.query("/_embedded/users/0");
 		
-		if(idObject == null)
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Ambiguous user. Please contact support",
-					"UNKNOWN", "Ambiguous user. Could not determine id value for user.");
-		
-		if(log.isDebugEnabled())
-			log.debug("User Value: " + idObject);
-		
-		return String.valueOf(idObject);
+		return (JSONObject) idObject;
 	}
 
 	private void createAccessToken() throws CustomAPIErrorException {		
