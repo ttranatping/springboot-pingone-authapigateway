@@ -33,9 +33,11 @@ ping:
     invoiceNumberValidator:
       attributeName: invoiceNumber
       uiField: user.invoiceNumber
-      emailField: username
+      emailField: invoiceEmail
   retainValues:
-    claims: email,username
+    claims: email,username,invoiceEmail
+    responseClaims: invoiceEmail
+    key: username,invoiceEmail
     encryptionKey: '{"kty":"oct","k":"Fdh9u8rINxfivbrianbbVT1u232VQBZYKx1HGAGPt2I"}'
   obfuscateValues: password
   registration:

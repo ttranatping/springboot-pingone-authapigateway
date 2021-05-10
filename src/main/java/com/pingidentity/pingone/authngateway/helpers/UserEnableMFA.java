@@ -44,6 +44,9 @@ public class UserEnableMFA {
 	@Value("${oauth2.worker.clientSecret}")
 	private String workerClientSecret;
 	
+	@Value("${ping.retainValues.key}")
+	private String[] retainValueKeys;
+	
 	private URI tokenEndpoint;
 	private String userAPIEndpoint;
 	private String accessToken = null;
@@ -61,10 +64,20 @@ public class UserEnableMFA {
 				.followRedirects(HttpClient.Redirect.NEVER).build();
 	}
 
-	public void enableMFA(String username) throws CustomAPIErrorException {
+	public boolean enableMFA(String username) throws CustomAPIErrorException {
 		createAccessToken();
 
-		String userId = getUserId(username);
+		String userId = null;
+		for(String retainValueKey: retainValueKeys)
+		{
+			userId = getUserId(username, retainValueKey);
+			
+			if(userId != null)
+				break;
+		}
+		
+		if(userId == null)
+			return false;
 		
 		Builder targetRequestBuilder = null;
 		
@@ -95,22 +108,24 @@ public class UserEnableMFA {
 		try {
 			targetResponse = httpClient.send(targetRequest, BodyHandlers.ofString());
 		} catch (IOException | InterruptedException e) {
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
-					"UNKNOWN", "Unknown issue trying to enable mfa for user.");
-
+			log.error("Unknown issue. Bad http response when enabling MFA for user", e);
+			return false;
 		}
 		
-		if(targetResponse.statusCode() != 200)
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
-					"UNKNOWN", "Unknown issue. Bad http response when enabling MFA for user: " + targetResponse.statusCode());
+		if(targetResponse.statusCode() != 200) {
+			log.error("Bad status code when enabling MFA: " + 200);
+			return false;
+		}
+			
+		return true;
 		
 	}
 	
-	private String getUserId(String username) throws CustomAPIErrorException
+	private String getUserId(String username, String retainValueKey) throws CustomAPIErrorException
 	{
 		String filter = null;
 		try {
-			filter = "filter=" + URLEncoder.encode(String.format("username eq \"%s\"", username), "UTF-8");
+			filter = "filter=" + URLEncoder.encode(String.format(retainValueKey + " eq \"%s\"", username), "UTF-8");
 		} catch (UnsupportedEncodingException e) {
 			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
 					"UNKNOWN", "Unknown issue. Unable to create search filter for user.");
@@ -166,8 +181,10 @@ public class UserEnableMFA {
 		int size = userResponse.getInt("size");
 		
 		if(size != 1)
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Ambiguous user. Please contact support",
-					"UNKNOWN", "Ambiguous user. Expected 1 result.");
+		{
+			log.debug("Ambiguous user. Expected 1 result.");
+			return null;
+		}
 		
 		Object idObject = userResponse.query("/_embedded/users/0/id");
 		

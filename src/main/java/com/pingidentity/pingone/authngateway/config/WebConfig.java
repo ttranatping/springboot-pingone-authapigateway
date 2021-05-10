@@ -17,7 +17,7 @@ public class WebConfig implements WebMvcConfigurer {
 	public void addCorsMappings(CorsRegistry registry) {
 		
         registry.addMapping("/**")
-        .allowedOrigins(allowedOrigin)
+        .allowedOrigins(allowedOrigin, "https://apidocs.pingidentity.com", "https://console.pingone.com")
         .allowedMethods("POST", "GET", "OPTIONS")
         .allowedHeaders("Origin","Content-Type","Content-Length","Content-Disposition","X-Amz-Date","Authorization","X-Api-Key","X-Amz-Security-Token","Cookie","Accept")
         .allowCredentials(true)
