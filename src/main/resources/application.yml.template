@@ -32,6 +32,7 @@ ping:
   customValidators:
     invoiceNumberValidator:
       attributeName: invoiceNumber
+      uiField: user.invoiceNumber
   retainValues:
     claims: email,username
     encryptionKey: '{"kty":"oct","k":"Fdh9u8rINxfivbrianbbVT1u232VQBZYKx1HGAGPt2I"}'

@@ -20,6 +20,9 @@ public class InvoiceNumber implements IValidator {
 
 	@Value("${ping.customValidators.invoiceNumberValidator.attributeName}")
 	private String attributeName;
+
+	@Value("${ping.customValidators.invoiceNumberValidator.uiField}")
+	private String uiField;
 	
 	@Autowired
 	private ValidatorRegister registeredValidators;
@@ -29,6 +32,9 @@ public class InvoiceNumber implements IValidator {
 	public void init()
 	{
 		registeredValidators.register(this);
+		
+		if(uiField == null || uiField.trim().equals(""))
+			uiField = attributeName;
 	}
 
 	@Override
@@ -38,16 +44,17 @@ public class InvoiceNumber implements IValidator {
 					retainedValues.toString(4), requestPayload.toString(4)));
 
 		if (!requestPayload.has(attributeName))
-			throw new CustomAPIErrorException(attributeName, "BAD_CONFIG", "Missing Invoice Number", "BAD_CONFIG",
-					"Missing Invoice Number");
+			throw new CustomAPIErrorException(uiField, "INVALID_DATA",
+					"The request could not be completed. One or more validation errors were in the request.", "INVALID_VALUE",
+					"must be at least 1 characters long");
 
 		String attributeValue = requestPayload.getString(attributeName);
 
 		String email = retainedValues.getString("username");
 
 		if (!attributeValue.contains(email.substring(0, email.indexOf("@"))))
-			throw new CustomAPIErrorException(attributeName, "BAD_INVOICE",
-					"Invoice does not match the registered user", "BAD_INVOICE",
+			throw new CustomAPIErrorException(uiField, "INVALID_DATA",
+					"The request could not be completed. One or more validation errors were in the request.", "INVALID_VALUE",
 					"Invoice does not match the registered user");
 	}
 
