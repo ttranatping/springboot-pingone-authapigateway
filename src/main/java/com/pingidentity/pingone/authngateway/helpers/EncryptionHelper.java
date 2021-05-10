@@ -1,4 +1,4 @@
-package com.pingidentity.pingone.authngateway.controllers;
+package com.pingidentity.pingone.authngateway.helpers;
 
 import javax.annotation.PostConstruct;
 
@@ -16,11 +16,11 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Controller;
+import org.springframework.stereotype.Component;
 
 import com.pingidentity.pingone.authngateway.exceptions.EncryptionException;
 
-@Controller
+@Component
 public class EncryptionHelper {
 	
 	private static Logger log = LoggerFactory.getLogger(EncryptionHelper.class);

@@ -48,6 +48,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import com.pingidentity.pingone.authngateway.exceptions.CustomAPIErrorException;
 import com.pingidentity.pingone.authngateway.exceptions.EncryptionException;
+import com.pingidentity.pingone.authngateway.helpers.EncryptionHelper;
+import com.pingidentity.pingone.authngateway.helpers.UserEnableMFA;
 import com.pingidentity.pingone.authngateway.validators.IValidator;
 import com.pingidentity.pingone.authngateway.validators.ValidatorRegister;
 

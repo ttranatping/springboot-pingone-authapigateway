@@ -1,4 +1,4 @@
-package com.pingidentity.pingone.authngateway.controllers;
+package com.pingidentity.pingone.authngateway.helpers;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
