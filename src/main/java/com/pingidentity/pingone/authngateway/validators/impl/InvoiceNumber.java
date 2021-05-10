@@ -38,17 +38,17 @@ public class InvoiceNumber implements IValidator {
 	}
 
 	@Override
-	public void validate(JSONObject retainedValues, JSONObject requestPayload) throws CustomAPIErrorException {
+	public void validate(JSONObject retainedValues, JSONObject userRequestPayload) throws CustomAPIErrorException {
 		if (log.isDebugEnabled())
 			log.debug(String.format("Validating: \nClaim: %s\nretainedValues: %s\nrequestPayload: %s", attributeName,
-					retainedValues.toString(4), requestPayload.toString(4)));
+					retainedValues.toString(4), userRequestPayload.toString(4)));
 
-		if (!requestPayload.has(attributeName))
+		if (!userRequestPayload.has(attributeName))
 			throw new CustomAPIErrorException(uiField, "INVALID_DATA",
 					"The request could not be completed. One or more validation errors were in the request.", "INVALID_VALUE",
 					"must be at least 1 characters long");
 
-		String attributeValue = requestPayload.getString(attributeName);
+		String attributeValue = userRequestPayload.getString(attributeName);
 
 		String email = retainedValues.getString("username");
 
