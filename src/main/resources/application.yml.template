@@ -23,7 +23,7 @@ logging:
     com.pingidentity.pingone: DEBUG
 
 ping:
-  environmentId: ece262d3-48cc-443a-b0c8-a69f8066fe72
+  environmentId: xxx
   authHost: auth.pingone.com
   apiHost: api.pingone.com
   allowedOrigin: https://apps.pingone.com
@@ -33,6 +33,7 @@ ping:
     invoiceNumberValidator:
       attributeName: invoiceNumber
       uiField: user.invoiceNumber
+      emailField: username
   retainValues:
     claims: email,username
     encryptionKey: '{"kty":"oct","k":"Fdh9u8rINxfivbrianbbVT1u232VQBZYKx1HGAGPt2I"}'

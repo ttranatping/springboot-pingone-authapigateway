@@ -16,7 +16,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
@@ -247,21 +250,33 @@ public class PingOneAuthGatewayController {
 
 		JSONObject requestPayload = new JSONObject(bodyStr);
 		JSONObject userRequestPayload = requestPayload.has("user")?requestPayload.getJSONObject("user"):requestPayload;
+
+		Map<String, Object> userRequestPayloadMap = convertJSONToUnmodifiableMap(userRequestPayload);
+		Map<String, Object> retainedValuesMap = convertJSONToUnmodifiableMap(retainedValues);
 		
 		boolean hasValidated = false;
 		
 		for(IValidator validator: this.registeredValidators.getRegisteredValidators())
 		{
-			if(!validator.isApplicable(userRequestPayload))
+			if(!validator.isApplicable(userRequestPayloadMap))
 				continue;
 			
 			hasValidated = true;
 			
-			validator.validate(retainedValues, userRequestPayload);
+			validator.validate(retainedValuesMap, userRequestPayloadMap);
 		}
 		
 		if(hasValidated)
 			this.enableUserMFA.enableMFA(retainedValues.getString("username"));
+	}
+
+	private Map<String, Object> convertJSONToUnmodifiableMap(JSONObject userRequestPayload) {
+		Map<String, Object> map = new HashMap<String, Object>();
+		
+		for(String key: userRequestPayload.keySet())
+			map.put(key, userRequestPayload.get(key));
+		
+		return Collections.unmodifiableMap(map);
 	}
 
 	private String obfuscate(String bodyStr) {
