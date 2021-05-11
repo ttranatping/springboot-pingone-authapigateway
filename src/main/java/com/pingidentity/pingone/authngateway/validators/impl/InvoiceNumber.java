@@ -79,7 +79,6 @@ public class InvoiceNumber implements IValidator {
 
 	@Override
 	public String info() {
-		// TODO Auto-generated method stub
 		return InvoiceNumber.class.getCanonicalName() + ":" + this.attributeName;
 	}
 

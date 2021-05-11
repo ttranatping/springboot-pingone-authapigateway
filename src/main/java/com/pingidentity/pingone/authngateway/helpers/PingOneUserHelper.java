@@ -112,81 +112,36 @@ public class PingOneUserHelper {
 	}
 
 	
-	public String getUserId(String username, String retainValueKey) throws CustomAPIErrorException
+	public String getUserId(String searchValue, String searchKey) throws CustomAPIErrorException
 	{
-		return getUser(username, retainValueKey).getString("id");
+		return getUser(searchValue, searchKey).getString("id");
 	}
 
 	
-	public String getUserName(String username, String retainValueKey) throws CustomAPIErrorException
+	public String getUserName(String searchValue, String searchKey) throws CustomAPIErrorException
 	{
-		return getUser(username, retainValueKey).getString("username");
+		return getUser(searchValue, searchKey).getString("username");
 	}
 	
-	public JSONObject getUser(String username, String retainValueKey) throws CustomAPIErrorException
+	public JSONObject getUser(String searchValue, String searchKey) throws CustomAPIErrorException
 	{
 		String filter = null;
 		try {
-			filter = "filter=" + URLEncoder.encode(String.format(retainValueKey + " eq \"%s\"", username), "UTF-8");
+			filter = "filter=" + URLEncoder.encode(String.format(searchKey + " eq \"%s\"", searchValue), "UTF-8");
 		} catch (UnsupportedEncodingException e) {
 			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
 					"UNKNOWN", "Unknown issue. Unable to create search filter for user.");
 		}
-		
-		Builder targetRequestBuilder = null;
 		
 		String searchEndpoint = this.userAPIEndpoint + "?" + filter;
 		
 		if(log.isDebugEnabled())
 			log.debug("User search endpoint: " + searchEndpoint);
 		
-		try {
-			targetRequestBuilder = HttpRequest.newBuilder().uri(new URI(searchEndpoint)).GET();
-		} catch (URISyntaxException e) {
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
-					"UNKNOWN", "Unknown issue. Unable to create http builder for user.");
-		}
-
-		targetRequestBuilder.setHeader("content-type", "application/json");
-		targetRequestBuilder.setHeader("Authorization", "Bearer " + this.accessToken);
+		JSONObject userResponse = loadObject(searchEndpoint);
 		
-		HttpRequest targetRequest = targetRequestBuilder.build();
-
-		HttpResponse<String> targetResponse = null;
-		
-		try {
-			targetResponse = httpClient.send(targetRequest, BodyHandlers.ofString());
-		} catch (IOException | InterruptedException e) {
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
-					"UNKNOWN", "Unknown issue trying to search for user.");
-
-		}
-
-		String responsePayload = null;
-
-		try {
-			responsePayload = getResponsePayload(targetResponse);
-		} catch (UnsupportedOperationException | IOException e) {
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
-					"UNKNOWN", "Unknown issue. Cannot receive access token response");
-		}
-		
-		if(log.isDebugEnabled())
-			log.debug("Search response: " + responsePayload);
-		
-		JSONObject userResponse = new JSONObject(responsePayload);
-
-		if (!userResponse.has("size"))
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
-					"UNKNOWN", "Unknown issue. Cannot obtain size of response.");
-		
-		int size = userResponse.getInt("size");
-		
-		if(size != 1)
-		{
-			log.debug("Ambiguous user. Expected 1 result.");
+		if(userResponse == null)
 			return null;
-		}
 		
 		Object idObject = userResponse.query("/_embedded/users/0");
 		
@@ -236,6 +191,76 @@ public class PingOneUserHelper {
 		
 		this.accessToken = atResponse.getString("access_token");
 	}
+	
+	public JSONObject getUserDevices(String userId) throws CustomAPIErrorException
+	{
+		String endpoint = String.format("%s/%s/devices", this.userAPIEndpoint, userId);
+		
+		String searchEndpoint = endpoint;
+		
+		if(log.isDebugEnabled())
+			log.debug("User device search endpoint: " + searchEndpoint);
+		
+		return loadObject(endpoint);
+	}
+
+	public boolean registerEmailDevice(String username, String emailAttribute) throws CustomAPIErrorException {
+		createAccessToken();
+		
+		String userId = getUserId(username, "username");
+		
+		if(userId == null)
+			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue registering email mfa. Please contact support",
+					"UNKNOWN", "Unknown issue registering email mfa. UserId is null.");
+		
+		JSONObject userDevices = getUserDevices(userId);
+		
+		if(userDevices != null)
+		{
+			if(log.isDebugEnabled())
+				log.debug("Skipping mfa enrolment because the user already has a device enabled.");
+			
+			return false;
+		}
+		
+		String payload = "{\n" + 
+				"    \"type\": \"EMAIL\",\n" + 
+				"    \"email\": \"" + emailAttribute + "\"\n" + 
+				"}";
+
+		Builder targetRequestBuilder = null;
+
+		String endpoint = String.format("%s/%s/devices", this.userAPIEndpoint, userId);
+		
+		try {
+			targetRequestBuilder = HttpRequest.newBuilder().uri(new URI(endpoint))
+					.POST(BodyPublishers.ofString(payload));
+		} catch (URISyntaxException e) {
+			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
+					"UNKNOWN", "Unknown issue. Unable to create http builder for enabling MFA.");
+		}
+
+		targetRequestBuilder.setHeader("content-type", "application/json");
+		targetRequestBuilder.setHeader("Authorization", "Bearer " + this.accessToken);
+		
+		HttpRequest targetRequest = targetRequestBuilder.build();
+
+		HttpResponse<String> targetResponse = null;
+		
+		try {
+			targetResponse = httpClient.send(targetRequest, BodyHandlers.ofString());
+		} catch (IOException | InterruptedException e) {
+			log.error("Unknown issue. Bad http response when enabling MFA for user", e);
+			return false;
+		}
+		
+		if(targetResponse.statusCode() != 201) {
+			log.error("Bad status code when adding MFA device: " + 201);
+			return false;
+		}
+			
+		return true;
+	}
 
 	private String getResponsePayload(HttpResponse<String> response) throws UnsupportedOperationException, IOException {
 		if (response == null) {
@@ -258,6 +283,66 @@ public class PingOneUserHelper {
 			return body;
 		}
 
+	}
+	
+	private JSONObject loadObject(String endpoint) throws CustomAPIErrorException
+	{		
+		Builder targetRequestBuilder = null;
+		
+		String searchEndpoint = endpoint;
+		
+		if(log.isDebugEnabled())
+			log.debug("Search endpoint: " + searchEndpoint);
+		
+		try {
+			targetRequestBuilder = HttpRequest.newBuilder().uri(new URI(searchEndpoint)).GET();
+		} catch (URISyntaxException e) {
+			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
+					"UNKNOWN", "Unknown issue. Unable to create http builder for user.");
+		}
+
+		targetRequestBuilder.setHeader("content-type", "application/json");
+		targetRequestBuilder.setHeader("Authorization", "Bearer " + this.accessToken);
+		
+		HttpRequest targetRequest = targetRequestBuilder.build();
+
+		HttpResponse<String> targetResponse = null;
+		
+		try {
+			targetResponse = httpClient.send(targetRequest, BodyHandlers.ofString());
+		} catch (IOException | InterruptedException e) {
+			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
+					"UNKNOWN", "Unknown issue trying to search for user.");
+
+		}
+
+		String responsePayload = null;
+
+		try {
+			responsePayload = getResponsePayload(targetResponse);
+		} catch (UnsupportedOperationException | IOException e) {
+			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
+					"UNKNOWN", "Unknown issue. Cannot receive access token response");
+		}
+		
+		if(log.isDebugEnabled())
+			log.debug("Search response: " + responsePayload);
+		
+		JSONObject userResponse = new JSONObject(responsePayload);
+
+		if (!userResponse.has("size"))
+			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
+					"UNKNOWN", "Unknown issue. Cannot obtain size of response.");
+		
+		int size = userResponse.getInt("size");
+		
+		if(size != 1)
+		{
+			log.debug("Ambiguous user. Expected 1 result.");
+			return null;
+		}
+		
+		return userResponse;
 	}
 
 }

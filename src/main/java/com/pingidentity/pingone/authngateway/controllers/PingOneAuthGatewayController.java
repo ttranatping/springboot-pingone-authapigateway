@@ -58,13 +58,17 @@ import com.pingidentity.pingone.authngateway.validators.ValidatorRegister;
 @RequestMapping("/")
 public class PingOneAuthGatewayController {
 	
-	private static Logger log = LoggerFactory.getLogger(PingOneAuthGatewayController.class);
+	private static final Logger log = LoggerFactory.getLogger(PingOneAuthGatewayController.class);
+	private static final String EmailAttribute = "username";
 
 	@Autowired
 	private ValidatorRegister registeredValidators;
 
 	@Value("${ping.authHost}")
 	private String authHost;
+
+	@Value("${ping.mfa.attributeName}")
+	private String mfaAttributeName;
 	
 	@Value("${ping.retainValues.claims}")
 	private String[] retainValues;
@@ -270,7 +274,9 @@ public class PingOneAuthGatewayController {
 		
 		JSONObject retainedValues = this.updateRetainedValuesRequest(request, response, flowId, bodyStr);
 		
-		validateRequestPayload(retainedValues, bodyStr);
+		boolean hasValidated = validateRequestPayload(retainedValues, bodyStr);
+		
+		this.registerMFARequest(hasValidated, retainedValues);
 		
 		Builder targetRequestBuilder = HttpRequest.newBuilder().uri(getTargetUrl(request)).POST(BodyPublishers.ofString(bodyStr));
 
@@ -284,11 +290,112 @@ public class PingOneAuthGatewayController {
 		
 		this.updateRetainedValuesResponse(response, responsePayload, flowId, retainedValues);
 		
+		this.registerMFAResponse(targetResponse.statusCode(), hasValidated, retainedValues);
+		
 		return new ResponseEntity<String>(responsePayload,
 				HttpStatus.valueOf(targetResponse.statusCode()));
 	}
 
-	private void validateRequestPayload(JSONObject retainedValues, String bodyStr) throws CustomAPIErrorException {
+	//determines whether we need to register email MFA after request validation and before request submission
+	//enabling mfa prior to the request submission will result in the user having to perform MFA
+	//however this might not be ideal e.g. if the user has already verified the same email address during registration
+	private void registerMFARequest(boolean hasValidated, JSONObject retainedValues) throws JSONException, CustomAPIErrorException {
+		
+		if(!hasValidated)
+			return;
+		
+		if(EmailAttribute.equals(mfaAttributeName))
+		{
+			if(log.isDebugEnabled())
+				log.debug("Not enabling MFA device because email attribute name is the same as mfa attribute. User has already verified their email.");
+			return;
+		}
+		
+		if(!retainedValues.has(EmailAttribute))
+		{
+			if(log.isDebugEnabled())
+				log.debug("Not enabling MFA device because retained attributes does not contain EmailAttribute.");
+			return;
+		}
+		
+		if(!retainedValues.has(mfaAttributeName))
+		{
+			if(log.isDebugEnabled())
+				log.debug("Not enabling MFA device because retained attributes does not contain mfaAttributeName.");
+			return;
+		}
+		
+		String emailAttribute = retainedValues.getString(EmailAttribute);
+		String mfaAttribute = retainedValues.getString(mfaAttributeName);
+		
+		if(emailAttribute.equalsIgnoreCase(mfaAttribute))
+		{
+			if(log.isDebugEnabled())
+				log.debug("Not enabling MFA device because email attribute value is equal to mfa attribute value. User has already verified their email.");
+			
+			return;
+		}
+		
+		this.p1UserHelper.registerEmailDevice(retainedValues.getString("username"), mfaAttribute);
+		
+	}
+	
+	private void registerMFAResponse(int statusCode, boolean hasValidated, JSONObject retainedValues) throws JSONException, CustomAPIErrorException {
+		
+		if(!hasValidated)
+			return;
+		
+		if(statusCode != 200)
+			return;
+		
+		boolean isRegisterEmailDevice = false;
+		String mfaAttribute = null;
+		
+		if(EmailAttribute.equals(mfaAttributeName))
+		{
+			if(log.isDebugEnabled())
+				log.debug("Registering email after validation because MFA attribute is the same as Email.");
+			
+			isRegisterEmailDevice = true;
+		}
+		else if(retainedValues.has(EmailAttribute) && retainedValues.has(mfaAttributeName))
+		{
+			String emailAttribute = retainedValues.getString(EmailAttribute);
+			mfaAttribute = retainedValues.getString(mfaAttributeName);
+			
+			if(emailAttribute.equalsIgnoreCase(mfaAttribute))
+			{
+				if(log.isDebugEnabled())
+					log.debug("Registering email after validation because MFA email value is the same as Email.");
+				
+				isRegisterEmailDevice = true;
+			}
+		}
+		else if(retainedValues.has(EmailAttribute))
+		{
+			if(log.isDebugEnabled())
+				log.debug("Registering email after validation because MFA email not provided is the same as Email.");
+			
+			isRegisterEmailDevice = true;
+			mfaAttribute = retainedValues.getString(EmailAttribute);
+		}
+		else if(retainedValues.has(mfaAttributeName))
+		{
+			if(log.isDebugEnabled())
+				log.debug("Registering email after validation because email not provided but MFA email is.");
+			
+			isRegisterEmailDevice = true;
+			mfaAttribute = retainedValues.getString(mfaAttributeName);
+		}
+			
+		
+		if(isRegisterEmailDevice)
+			this.p1UserHelper.registerEmailDevice(retainedValues.getString("username"), mfaAttribute);
+			
+		
+	}
+
+	private boolean validateRequestPayload(JSONObject retainedValues, String bodyStr) throws CustomAPIErrorException {
 
 		JSONObject requestPayload = new JSONObject(bodyStr);
 		JSONObject userRequestPayload = requestPayload.has("user")?requestPayload.getJSONObject("user"):requestPayload;
@@ -310,6 +417,8 @@ public class PingOneAuthGatewayController {
 		
 		if(hasValidated)
 			this.p1UserHelper.enableMFA(retainedValues.getString("username"), "username");
+		
+		return hasValidated;
 	}
 
 	private Map<String, Object> convertJSONToUnmodifiableMap(JSONObject userRequestPayload) {
