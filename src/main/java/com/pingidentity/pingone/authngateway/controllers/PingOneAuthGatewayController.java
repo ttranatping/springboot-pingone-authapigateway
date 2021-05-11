@@ -111,7 +111,7 @@ public class PingOneAuthGatewayController {
 
 		HttpRequest targetRequest = targetRequestBuilder.build();
 		
-		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response, false);
+		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response);
 
 		String location = getLocationHeader(targetResponse, response);
 
