@@ -11,6 +11,7 @@ import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpRequest.Builder;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
+import java.util.Date;
 
 import javax.annotation.PostConstruct;
 
@@ -34,19 +35,20 @@ public class PingOneUserHelper {
 
 	@Value("${ping.apiHost}")
 	private String apiHost;
-	
+
 	@Value("${ping.environmentId}")
 	private String environmentId;
-	
+
 	@Value("${oauth2.worker.clientId}")
 	private String workerClientId;
-	
+
 	@Value("${oauth2.worker.clientSecret}")
 	private String workerClientSecret;
-	
+
 	private URI tokenEndpoint;
 	private String userAPIEndpoint;
 	private String accessToken = null;
+	private Long accessTokenExpiresIn = null;
 
 	private HttpClient httpClient;
 
@@ -62,22 +64,22 @@ public class PingOneUserHelper {
 	}
 
 	public boolean enableMFA(String username, String retainValueKey) throws CustomAPIErrorException {
+		createAccessToken();
+		
 		String userId = getUserId(username, retainValueKey);
-		
-		if(userId == null)
+
+		if (userId == null)
 			return false;
-		
+
 		Builder targetRequestBuilder = null;
-		
+
 		String searchEndpoint = this.userAPIEndpoint + "/" + userId + "/mfaEnabled";
-		
-		if(log.isDebugEnabled())
+
+		if (log.isDebugEnabled())
 			log.debug("User search endpoint: " + searchEndpoint);
-		
-		String payload = "{\n" + 
-				"    \"mfaEnabled\": true\n" + 
-				"}";
-		
+
+		String payload = "{\n" + "    \"mfaEnabled\": true\n" + "}";
+
 		try {
 			targetRequestBuilder = HttpRequest.newBuilder().uri(new URI(searchEndpoint))
 					.PUT(BodyPublishers.ofString(payload));
@@ -88,41 +90,42 @@ public class PingOneUserHelper {
 
 		targetRequestBuilder.setHeader("content-type", "application/json");
 		targetRequestBuilder.setHeader("Authorization", "Bearer " + this.accessToken);
-		
+
 		HttpRequest targetRequest = targetRequestBuilder.build();
 
 		HttpResponse<String> targetResponse = null;
-		
+
 		try {
 			targetResponse = httpClient.send(targetRequest, BodyHandlers.ofString());
 		} catch (IOException | InterruptedException e) {
 			log.error("Unknown issue. Bad http response when enabling MFA for user", e);
 			return false;
 		}
-		
-		if(targetResponse.statusCode() != 200) {
+
+		if (targetResponse.statusCode() != 200) {
 			log.error("Bad status code when enabling MFA: " + 200);
 			return false;
 		}
-			
+
 		return true;
-		
+
 	}
 
-	
-	public String getUserId(String searchValue, String searchKey) throws CustomAPIErrorException
-	{
+	public String getUserId(String searchValue, String searchKey) throws CustomAPIErrorException {
+		createAccessToken();
+		
 		return getUser(searchValue, searchKey).getString("id");
 	}
 
-	
-	public String getUserName(String searchValue, String searchKey) throws CustomAPIErrorException
-	{
+	public String getUserName(String searchValue, String searchKey) throws CustomAPIErrorException {
+		createAccessToken();
+		
 		return getUser(searchValue, searchKey).getString("username");
 	}
-	
-	public JSONObject getUser(String searchValue, String searchKey) throws CustomAPIErrorException
-	{
+
+	public JSONObject getUser(String searchValue, String searchKey) throws CustomAPIErrorException {
+		createAccessToken();
+		
 		String filter = null;
 		try {
 			filter = "filter=" + URLEncoder.encode(String.format(searchKey + " eq \"%s\"", searchValue), "UTF-8");
@@ -130,25 +133,103 @@ public class PingOneUserHelper {
 			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
 					"UNKNOWN", "Unknown issue. Unable to create search filter for user.");
 		}
-		
+
 		String searchEndpoint = this.userAPIEndpoint + "?" + filter;
-		
-		if(log.isDebugEnabled())
+
+		if (log.isDebugEnabled())
 			log.debug("User search endpoint: " + searchEndpoint);
-		
+
 		JSONObject userResponse = loadObject(searchEndpoint);
-		
-		if(userResponse == null)
+
+		if (userResponse == null)
 			return null;
-		
+
 		Object idObject = userResponse.query("/_embedded/users/0");
-		
+
 		return (JSONObject) idObject;
 	}
 
-	private void createAccessToken() throws CustomAPIErrorException {		
-		String payload = String.format("grant_type=client_credentials&client_id=%s&client_secret=%s", this.workerClientId, this.workerClientSecret);
+	public JSONObject getUserDevices(String userId) throws CustomAPIErrorException {
+		createAccessToken();
 		
+		String endpoint = String.format("%s/%s/devices", this.userAPIEndpoint, userId);
+
+		String searchEndpoint = endpoint;
+
+		if (log.isDebugEnabled())
+			log.debug("User device search endpoint: " + searchEndpoint);
+
+		return loadObject(endpoint);
+	}
+
+	public boolean registerEmailDevice(String username, String emailAttribute) throws CustomAPIErrorException {
+		createAccessToken();
+		
+		String userId = getUserId(username, "username");
+
+		if (userId == null)
+			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN",
+					"Unknown issue registering email mfa. Please contact support", "UNKNOWN",
+					"Unknown issue registering email mfa. UserId is null.");
+
+		JSONObject userDevices = getUserDevices(userId);
+
+		if (userDevices != null) {
+			if (log.isDebugEnabled())
+				log.debug("Skipping mfa enrolment because the user already has a device enabled.");
+
+			return false;
+		}
+
+		String payload = "{\n" + "    \"type\": \"EMAIL\",\n" + "    \"email\": \"" + emailAttribute + "\"\n" + "}";
+
+		Builder targetRequestBuilder = null;
+
+		String endpoint = String.format("%s/%s/devices", this.userAPIEndpoint, userId);
+
+		try {
+			targetRequestBuilder = HttpRequest.newBuilder().uri(new URI(endpoint))
+					.POST(BodyPublishers.ofString(payload));
+		} catch (URISyntaxException e) {
+			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
+					"UNKNOWN", "Unknown issue. Unable to create http builder for enabling MFA.");
+		}
+
+		targetRequestBuilder.setHeader("content-type", "application/json");
+		targetRequestBuilder.setHeader("Authorization", "Bearer " + this.accessToken);
+
+		HttpRequest targetRequest = targetRequestBuilder.build();
+
+		HttpResponse<String> targetResponse = null;
+
+		try {
+			targetResponse = httpClient.send(targetRequest, BodyHandlers.ofString());
+		} catch (IOException | InterruptedException e) {
+			log.error("Unknown issue. Bad http response when enabling MFA for user", e);
+			return false;
+		}
+
+		if (targetResponse.statusCode() != 201) {
+			log.error("Bad status code when adding MFA device: " + 201);
+			return false;
+		}
+
+		return true;
+	}
+
+	private void createAccessToken() throws CustomAPIErrorException {
+
+		if (this.accessToken != null && this.accessTokenExpiresIn != null
+				&& this.accessTokenExpiresIn > (new Date()).getTime()) {
+
+			if(log.isDebugEnabled())
+				log.debug("Using existing accessToken");
+			return;
+		}
+
+		String payload = String.format("grant_type=client_credentials&client_id=%s&client_secret=%s",
+				this.workerClientId, this.workerClientSecret);
+
 		Builder targetRequestBuilder = HttpRequest.newBuilder().uri(this.tokenEndpoint)
 				.POST(BodyPublishers.ofString(payload));
 
@@ -164,10 +245,11 @@ public class PingOneUserHelper {
 					"UNKNOWN", "Unknown issue.");
 
 		}
-		
-		if(targetResponse.statusCode() != 200)
+
+		if (targetResponse.statusCode() != 200)
 			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
-					"UNKNOWN", "Unknown issue. Bad http response when retrieving access token: " + targetResponse.statusCode());
+					"UNKNOWN",
+					"Unknown issue. Bad http response when retrieving access token: " + targetResponse.statusCode());
 
 		String responsePayload = null;
 
@@ -177,8 +259,8 @@ public class PingOneUserHelper {
 			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
 					"UNKNOWN", "Unknown issue. Cannot receive access token response");
 		}
-		
-		if(log.isDebugEnabled())
+
+		if (log.isDebugEnabled())
 			log.debug("AT response: " + responsePayload);
 
 		JSONObject atResponse = new JSONObject(responsePayload);
@@ -186,76 +268,16 @@ public class PingOneUserHelper {
 		if (!atResponse.has("access_token"))
 			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
 					"UNKNOWN", "Unknown issue. Cannot locate access_token.");
-		
+
+		if (atResponse.has("expires_in")) {
+			Integer accessTokenExpires = atResponse.getInt("expires_in");
+			if (accessTokenExpires != null) {
+				// 750 = 1000ms less 25%
+				this.accessTokenExpiresIn = (new Date()).getTime() + (accessTokenExpires * 750);
+			}
+		}
+
 		this.accessToken = atResponse.getString("access_token");
-	}
-	
-	public JSONObject getUserDevices(String userId) throws CustomAPIErrorException
-	{
-		String endpoint = String.format("%s/%s/devices", this.userAPIEndpoint, userId);
-		
-		String searchEndpoint = endpoint;
-		
-		if(log.isDebugEnabled())
-			log.debug("User device search endpoint: " + searchEndpoint);
-		
-		return loadObject(endpoint);
-	}
-
-	public boolean registerEmailDevice(String username, String emailAttribute) throws CustomAPIErrorException {		
-		String userId = getUserId(username, "username");
-		
-		if(userId == null)
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue registering email mfa. Please contact support",
-					"UNKNOWN", "Unknown issue registering email mfa. UserId is null.");
-		
-		JSONObject userDevices = getUserDevices(userId);
-		
-		if(userDevices != null)
-		{
-			if(log.isDebugEnabled())
-				log.debug("Skipping mfa enrolment because the user already has a device enabled.");
-			
-			return false;
-		}
-		
-		String payload = "{\n" + 
-				"    \"type\": \"EMAIL\",\n" + 
-				"    \"email\": \"" + emailAttribute + "\"\n" + 
-				"}";
-
-		Builder targetRequestBuilder = null;
-
-		String endpoint = String.format("%s/%s/devices", this.userAPIEndpoint, userId);
-		
-		try {
-			targetRequestBuilder = HttpRequest.newBuilder().uri(new URI(endpoint))
-					.POST(BodyPublishers.ofString(payload));
-		} catch (URISyntaxException e) {
-			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
-					"UNKNOWN", "Unknown issue. Unable to create http builder for enabling MFA.");
-		}
-
-		targetRequestBuilder.setHeader("content-type", "application/json");
-		targetRequestBuilder.setHeader("Authorization", "Bearer " + this.accessToken);
-		
-		HttpRequest targetRequest = targetRequestBuilder.build();
-
-		HttpResponse<String> targetResponse = null;
-		
-		try {
-			targetResponse = httpClient.send(targetRequest, BodyHandlers.ofString());
-		} catch (IOException | InterruptedException e) {
-			log.error("Unknown issue. Bad http response when enabling MFA for user", e);
-			return false;
-		}
-		
-		if(targetResponse.statusCode() != 201) {
-			log.error("Bad status code when adding MFA device: " + 201);
-			return false;
-		}
-			
-		return true;
 	}
 
 	private String getResponsePayload(HttpResponse<String> response) throws UnsupportedOperationException, IOException {
@@ -280,18 +302,16 @@ public class PingOneUserHelper {
 		}
 
 	}
-	
-	private JSONObject loadObject(String endpoint) throws CustomAPIErrorException
-	{
-		createAccessToken();
-		
+
+	private JSONObject loadObject(String endpoint) throws CustomAPIErrorException {
+
 		Builder targetRequestBuilder = null;
-		
+
 		String searchEndpoint = endpoint;
-		
-		if(log.isDebugEnabled())
+
+		if (log.isDebugEnabled())
 			log.debug("Search endpoint: " + searchEndpoint);
-		
+
 		try {
 			targetRequestBuilder = HttpRequest.newBuilder().uri(new URI(searchEndpoint)).GET();
 		} catch (URISyntaxException e) {
@@ -301,11 +321,11 @@ public class PingOneUserHelper {
 
 		targetRequestBuilder.setHeader("content-type", "application/json");
 		targetRequestBuilder.setHeader("Authorization", "Bearer " + this.accessToken);
-		
+
 		HttpRequest targetRequest = targetRequestBuilder.build();
 
 		HttpResponse<String> targetResponse = null;
-		
+
 		try {
 			targetResponse = httpClient.send(targetRequest, BodyHandlers.ofString());
 		} catch (IOException | InterruptedException e) {
@@ -322,24 +342,23 @@ public class PingOneUserHelper {
 			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
 					"UNKNOWN", "Unknown issue. Cannot receive access token response");
 		}
-		
-		if(log.isDebugEnabled())
+
+		if (log.isDebugEnabled())
 			log.debug("Search response: " + responsePayload);
-		
+
 		JSONObject userResponse = new JSONObject(responsePayload);
 
 		if (!userResponse.has("size"))
 			throw new CustomAPIErrorException(this.attributeName, "UNKNOWN", "Unknown issue. Please contact support",
 					"UNKNOWN", "Unknown issue. Cannot obtain size of response.");
-		
+
 		int size = userResponse.getInt("size");
-		
-		if(size != 1)
-		{
+
+		if (size != 1) {
 			log.debug("Ambiguous user. Expected 1 result.");
 			return null;
 		}
-		
+
 		return userResponse;
 	}
 
