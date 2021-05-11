@@ -62,8 +62,6 @@ public class PingOneUserHelper {
 	}
 
 	public boolean enableMFA(String username, String retainValueKey) throws CustomAPIErrorException {
-		createAccessToken();
-
 		String userId = getUserId(username, retainValueKey);
 		
 		if(userId == null)
@@ -204,9 +202,7 @@ public class PingOneUserHelper {
 		return loadObject(endpoint);
 	}
 
-	public boolean registerEmailDevice(String username, String emailAttribute) throws CustomAPIErrorException {
-		createAccessToken();
-		
+	public boolean registerEmailDevice(String username, String emailAttribute) throws CustomAPIErrorException {		
 		String userId = getUserId(username, "username");
 		
 		if(userId == null)
@@ -286,7 +282,9 @@ public class PingOneUserHelper {
 	}
 	
 	private JSONObject loadObject(String endpoint) throws CustomAPIErrorException
-	{		
+	{
+		createAccessToken();
+		
 		Builder targetRequestBuilder = null;
 		
 		String searchEndpoint = endpoint;
