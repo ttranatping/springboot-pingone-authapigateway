@@ -56,7 +56,7 @@ public class PingOneUserHelper {
 	public void init() throws URISyntaxException {
 		this.attributeName = "enablemfa";
 
-		this.tokenEndpoint = new URI(String.format("https://%s/%s/as/token", this.authHost, this.environmentId));
+		this.tokenEndpoint = new URI(String.format("https://%s/as/token", this.authHost, this.environmentId));
 		this.userAPIEndpoint = String.format("https://%s/v1/environments/%s/users", this.apiHost, this.environmentId);
 
 		this.httpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_2)

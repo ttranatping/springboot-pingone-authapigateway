@@ -97,10 +97,9 @@ public class PingOneAuthGatewayController {
 		
 	}
 
-	@GetMapping("/{envId}/as/authorize")
+	@GetMapping("/as/authorize")
 	public void authorize(HttpServletRequest request, HttpServletResponse response,
-			@RequestHeader MultiValueMap<String, String> headers,
-			@PathVariable(value = "envId", required = true) String envId) throws IOException, InterruptedException, URISyntaxException {
+			@RequestHeader MultiValueMap<String, String> headers) throws IOException, InterruptedException, URISyntaxException {
 
 		if(log.isDebugEnabled())
 			log.debug("Process Authorize Endpoint");
@@ -111,7 +110,7 @@ public class PingOneAuthGatewayController {
 
 		HttpRequest targetRequest = targetRequestBuilder.build();
 		
-		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response);
+		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response, true, true);
 
 		String location = getLocationHeader(targetResponse, response);
 
@@ -123,10 +122,9 @@ public class PingOneAuthGatewayController {
 		response.addHeader(":status", "302");
 	}
 
-	@GetMapping(value = "/{envId}/experiences/{experienceId}", produces = "text/html;charset=UTF-8")
+	@GetMapping(value = "/experiences/{experienceId}", produces = "text/html;charset=UTF-8")
 	public ResponseEntity<String> getExperiences(HttpServletRequest request, HttpServletResponse response,
 			@RequestHeader MultiValueMap<String, String> headers,
-			@PathVariable(value = "envId", required = true) String envId,
 			@RequestParam String redirectUri) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
 
 		String flowId = redirectUri.substring(redirectUri.indexOf("/flows/") + "/flows/".length()).replace("flowExecutionCallback", "").replaceAll("\\/", "");
@@ -134,13 +132,12 @@ public class PingOneAuthGatewayController {
 		if(log.isDebugEnabled())
 			log.debug("Process getExperiences flowId: " + flowId);
 		
-		return performGET(request, response, headers, envId, null);
+		return performGET(request, response, headers, null, true);
 	}
 
-	@GetMapping(value = "/{envId}/flows/{flowId}/flowExecutionCallback", produces = "text/html;charset=UTF-8")
+	@GetMapping(value = "/flows/{flowId}/flowExecutionCallback", produces = "text/html;charset=UTF-8")
 	public ResponseEntity<String> getFlowExecutionCallback(HttpServletRequest request, HttpServletResponse response,
 			@RequestHeader MultiValueMap<String, String> headers,
-			@PathVariable(value = "envId", required = true) String envId,
 			@PathVariable(value = "flowId", required = true) String flowId,
 			@RequestParam String flowExecutionId) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
 
@@ -158,51 +155,97 @@ public class PingOneAuthGatewayController {
 			addCookie(this.getCookieName(flowId), newEncryptedCookieValue, response);
 		}
 		
-		return performGET(request, response, headers, envId, null);
+		return performGET(request, response, headers, null, true);
 	}
 
-	@GetMapping(value = "/{envId}/flows/{flowId}", produces = "application/hal+json;charset=UTF-8")
+	@GetMapping(value = "/flows/{flowId}", produces = "application/hal+json;charset=UTF-8")
 	public ResponseEntity<String> get(HttpServletRequest request, HttpServletResponse response,
 			@RequestHeader MultiValueMap<String, String> headers,
-			@PathVariable(value = "envId", required = true) String envId,
 			@PathVariable(value = "flowId", required = true) String flowId) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
 
 		if(log.isDebugEnabled())
-			log.debug("Process GET");
+			log.debug("Process GET flows");
 		
-		return performGET(request, response, headers, envId, flowId);
+		return performGET(request, response, headers, flowId, true);
 	}
 
-	@GetMapping(value = "/{envId}/**", produces = "application/hal+json;charset=UTF-8")
-	public ResponseEntity<String> getAS(HttpServletRequest request, HttpServletResponse response,
-			@RequestHeader MultiValueMap<String, String> headers,
-			@PathVariable(value = "envId", required = true) String envId) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
+	@GetMapping(value = {"/**"})
+	public ResponseEntity<String> getAll(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
 
 		if(log.isDebugEnabled())
-			log.debug("Process GET");
+			log.debug("Process GET all");
 		
-		return performGET(request, response, headers, envId, null);
+		return performGET(request, response, headers, null, false);
 	}
 
-	@PostMapping(value = "/{envId}/flows/{flowId}", produces = "application/hal+json;charset=UTF-8")
+	@GetMapping(value = {"/**/*.otf", "/**/*.woff2", "/**/*.ttf", "/**/*.woff"}, produces="binary/octet-stream;")
+	public ResponseEntity<String> getOctetStream(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
+
+		if(log.isDebugEnabled())
+			log.debug("Process GET octet stream");
+		
+		return performGET(request, response, headers, null, false);
+	}
+
+	@GetMapping(value = {"/**/*.png"}, produces="image/png")
+	public ResponseEntity<String> getPNG(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
+
+		if(log.isDebugEnabled())
+			log.debug("Process GET png");
+		
+		return performGET(request, response, headers, null, false);
+	}
+
+	@GetMapping(value = {"/**/*.js"}, produces="application/javascript;charset=UTF-8")
+	public ResponseEntity<String> getJavascript(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
+
+		if(log.isDebugEnabled())
+			log.debug("Process GET javascript");
+		
+		return performGET(request, response, headers, null, false);
+	}
+
+	@GetMapping(value = {"/**/*.json"}, produces="application/json;charset=UTF-8")
+	public ResponseEntity<String> getJson(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
+
+		if(log.isDebugEnabled())
+			log.debug("Process GET json");
+		
+		return performGET(request, response, headers, null, false);
+	}
+
+	@GetMapping(value = {"/**/*.css"}, produces="text/css;charset=UTF-8")
+	public ResponseEntity<String> getCSS(HttpServletRequest request, HttpServletResponse response,
+			@RequestHeader MultiValueMap<String, String> headers) throws IOException, InterruptedException, URISyntaxException, EncryptionException {
+
+		if(log.isDebugEnabled())
+			log.debug("Process GET CSS");
+		
+		return performGET(request, response, headers, null, false);
+	}
+
+	@PostMapping(value = "/flows/{flowId}", produces = "application/hal+json;charset=UTF-8")
 	public ResponseEntity<String> post(HttpServletRequest request, HttpServletResponse response,
 			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
-			@PathVariable(value = "envId", required = true) String envId,
 			@PathVariable(value = "flowId", required = true) String flowId) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
 
 		if(log.isDebugEnabled())
-			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
+			log.debug(String.format("Process POST - FlowId: %s", flowId));
 		
 		if(log.isDebugEnabled())
-			log.debug(String.format("Process POST - FlowId: %s, with body: %s", flowId, obfuscate(bodyStr)));
+			log.debug(String.format("Process POST - FlowId: %s", flowId));
 		
-		return performPOST(request, response, headers, bodyStr, envId, flowId);
+		return performPOST(request, response, headers, bodyStr, flowId);
 	}
 
-	@PostMapping(value = "/{envId}/as/**", produces = "application/json;charset=UTF-8")
+	@PostMapping(value = "/as/**", produces = "application/json;charset=UTF-8")
 	public ResponseEntity<String> postAS(HttpServletRequest request, HttpServletResponse response,
-			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
-			@PathVariable(value = "envId", required = true) String envId) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
+			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
 
 		Builder targetRequestBuilder = HttpRequest.newBuilder().uri(getTargetUrl(request)).POST(BodyPublishers.ofString(bodyStr));
 
@@ -210,7 +253,7 @@ public class PingOneAuthGatewayController {
 
 		HttpRequest targetRequest = targetRequestBuilder.build();
 		
-		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response);
+		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response, true);
 		
 		String responsePayload = getResponsePayload(targetResponse);
 		
@@ -218,21 +261,20 @@ public class PingOneAuthGatewayController {
 				HttpStatus.valueOf(targetResponse.statusCode()));
 	}
 
-	@PostMapping(value = "/{envId}/flowExecutions/{flowExecutionId}", produces = "application/json;charset=UTF-8")
+	@PostMapping(value = "/flowExecutions/{flowExecutionId}", produces = "application/json;charset=UTF-8")
 	public ResponseEntity<String> postExecution(HttpServletRequest request, HttpServletResponse response,
 			@RequestHeader MultiValueMap<String, String> headers, @RequestBody(required = true) String bodyStr,
-			@PathVariable(value = "envId", required = true) String envId,
 			@PathVariable(value = "flowExecutionId", required = true) String flowExecutionId) throws IOException, URISyntaxException, InterruptedException, EncryptionException, CustomAPIErrorException {
 
 		if(log.isDebugEnabled())
-			log.debug(String.format("Process postExecution - FlowId: %s, with body: %s", flowExecutionId, obfuscate(bodyStr)));
+			log.debug(String.format("Process postExecution - FlowId: %s", flowExecutionId));
 		
-		return performPOST(request, response, headers, bodyStr, envId, flowExecutionId);
+		return performPOST(request, response, headers, bodyStr, flowExecutionId);
 	}
 	
 	private ResponseEntity<String> performGET(HttpServletRequest request, HttpServletResponse response,
 			MultiValueMap<String, String> headers,
-			String envId, String flowId) throws URISyntaxException, IOException, InterruptedException, EncryptionException
+			String flowId, boolean ignoreContentType) throws URISyntaxException, IOException, InterruptedException, EncryptionException
 	{
 		JSONObject retainedValues = this.updateRetainedValuesRequest(request, response, flowId, null);
 		
@@ -242,7 +284,7 @@ public class PingOneAuthGatewayController {
 
 		HttpRequest targetRequest = targetRequestBuilder.build();
 		
-		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response);
+		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response, true, ignoreContentType);
 
 		String responsePayload = getResponsePayload(targetResponse);
 		
@@ -268,7 +310,6 @@ public class PingOneAuthGatewayController {
 	
 	private ResponseEntity<String> performPOST(HttpServletRequest request, HttpServletResponse response,
 			MultiValueMap<String, String> headers, String bodyStr,
-			String envId,
 			String flowId) throws EncryptionException, URISyntaxException, CustomAPIErrorException, IOException, InterruptedException
 	{
 		
@@ -284,7 +325,7 @@ public class PingOneAuthGatewayController {
 
 		HttpRequest targetRequest = targetRequestBuilder.build();
 		
-		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response);
+		HttpResponse<InputStream> targetResponse = executeTargetRequest(targetRequest, response, true);
 		
 		String responsePayload = getResponsePayload(targetResponse);
 		
@@ -591,21 +632,24 @@ public class PingOneAuthGatewayController {
 			
 		    String text = IOUtils.toString(bodyInputStream, StandardCharsets.UTF_8.name());
 
-			if(log.isDebugEnabled())
-				log.debug("Body: " + text);
+			if(log.isTraceEnabled())
+				log.trace("Body: " + text);
 			
 			return text;
 		}
 
 	}
 	
-	private HttpResponse<InputStream> executeTargetRequest(HttpRequest targetRequest, HttpServletResponse response) throws IOException, InterruptedException {
-		return executeTargetRequest(targetRequest, response, true);
+	private HttpResponse<InputStream> executeTargetRequest(HttpRequest targetRequest, HttpServletResponse response, boolean ignoreContentType) throws IOException, InterruptedException {
+		return executeTargetRequest(targetRequest, response, true, ignoreContentType);
 	}
 
-	private HttpResponse<InputStream> executeTargetRequest(HttpRequest targetRequest, HttpServletResponse response, boolean isSetResponseHeaders) throws IOException, InterruptedException {
+	private HttpResponse<InputStream> executeTargetRequest(HttpRequest targetRequest, HttpServletResponse response, boolean isSetResponseHeaders, boolean ignoreContentType) throws IOException, InterruptedException {
 
 		HttpResponse<InputStream> targetResponse = httpClient.send(targetRequest, BodyHandlers.ofInputStream());
+		
+		if(log.isDebugEnabled())
+			log.debug("target content-type is: " + targetResponse.headers().firstValue("Content-Type"));
 		
 		if(isSetResponseHeaders)
 		{
